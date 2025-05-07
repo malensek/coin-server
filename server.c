@@ -326,11 +326,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    if (pthread_mutex_init(&lock, NULL) != 0) {
-        printf("\n mutex init failed\n");
-        return 1;
-    }
-
     if (argc < 2) {
         print_usage(argv[0]);
         return 1;
