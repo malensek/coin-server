@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/types.h> 
+#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -59,7 +59,7 @@ uint32_t increase_difficulty_mask(uint32_t mask)
     if (mask == 0x01) {
         return 0;
     }
-    
+
     return (mask >> 1);
 }
 
@@ -128,7 +128,7 @@ struct user *find_user(char *username)
       curr_user = curr_user->next;
     }
     return NULL;
-    
+
 }
 
 struct user *add_user(char *username)
@@ -218,7 +218,7 @@ bool verify_solution(struct msg_solution *solution)
 void handle_solution(int fd, struct msg_solution *solution)
 {
     LOG("[SOLUTION SUBMITTED] User: %s, block: %s, difficulty: %u, NONCE: %lu\n", solution->username, solution->block, solution->difficulty_mask, solution->nonce);
-    
+
     union msg_wrapper wrapper = create_msg(MSG_VERIFICATION);
     struct msg_verification *verification = &wrapper.verification;
     verification->ok = false; // assume the solution is not valid by default
@@ -237,7 +237,7 @@ void handle_solution(int fd, struct msg_solution *solution)
         write_msg(fd, &wrapper);
         return;
     }
-    
+
     if (current_task->difficulty_mask !=  solution->difficulty_mask) {
         strcpy(verification->error_description, "Difficulty does not match current difficulty on server");
         write_msg(fd, &wrapper);
@@ -271,14 +271,14 @@ void handle_solution(int fd, struct msg_solution *solution)
         generate_new_task();
         LOG("Generated new block: %s\n", current_task->block);
     }
-    
+
     pthread_mutex_unlock(&lock); // unlock after verification
     ret = pthread_mutex_unlock(&lock);
     if (ret != 0) {
         fprintf(stderr, "Error locking mutex: %s\n", strerror(ret));
 	exit(EXIT_FAILURE);
     }
-	     
+	
 
     strcpy(verification->error_description, "Verified SHA-1 hash");
     write_msg(fd, &wrapper);
@@ -373,7 +373,7 @@ int main(int argc, char *argv[]) {
                 break;
         }
     }
-    
+
     LOG("Starting coin-server version %.1f...\n", VERSION);
     LOG("%s", "(c) 2023 CS 521 Students\n");
 
@@ -382,8 +382,8 @@ int main(int argc, char *argv[]) {
     }
     LOG("Random seed: %d\n", opts.random_seed);
     srand(opts.random_seed);
-    
-   
+
+
     task_init(opts.adj_file, opts.animal_file);
     current_task_wrapper = create_msg(MSG_TASK);
     generate_new_task();
@@ -446,5 +446,5 @@ int main(int argc, char *argv[]) {
     }
     //Closing log_file before we exit the server.
     // Add finishing commands to sigint handler function
-    return 0; 
+    return 0;
 }
