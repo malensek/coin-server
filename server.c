@@ -392,12 +392,14 @@ int main(int argc, char *argv[]) {
     addr.sin_port = htons(port);
     if (bind(socket_fd, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
         perror("bind");
+	close(socket_fd);  // Close socket before returning
         return 1;
     }
 
     // start listening for clients to connect
     if (listen(socket_fd, 10) == -1) {
         perror("listen");
+	close(socket_fd);  // Close socket before returning
         return 1;
     }
 
