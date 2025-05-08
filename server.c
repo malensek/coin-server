@@ -134,6 +134,10 @@ struct user *find_user(char *username)
 struct user *add_user(char *username)
 {
     struct user *u = calloc(1, sizeof(struct user));
+    if (u == NULL) {
+        perror("calloc");
+        return NULL;
+    }
     strncpy(u->username, username, MAX_USER_LEN - 1);
     u->heartbeat_timestamp = 0;
     u->next = user_list;
@@ -192,7 +196,7 @@ bool verify_solution(struct msg_solution *solution)
     const char *check_format = "%s%lu";
     ssize_t buf_sz = snprintf(NULL, 0, check_format, current_task->block, solution->nonce);
     char *buf = malloc(buf_sz + 1);
-    if(buf == NULL){
+    if (buf == NULL){
         perror("malloc");
         return false;
     }
