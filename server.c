@@ -252,6 +252,12 @@ void handle_solution(int fd, struct msg_solution *solution)
     }
 
     pthread_mutex_lock(&lock); // lock before verification so that it is only executed by one thread at a time
+    int ret = pthread_mutex_lock(&lock);
+    if (ret != 0) {
+        fprintf(stderr, "Error locking mutex: %s\n", strerror(ret));
+	exit(EXIT_FAILURE);
+    }
+
     verification->ok = verify_solution(solution);
 
     LOG("[SOLUTION by %s %s!]\n", solution->username, verification->ok ? "ACCEPTED" : "REJECTED");
@@ -267,6 +273,12 @@ void handle_solution(int fd, struct msg_solution *solution)
     }
     
     pthread_mutex_unlock(&lock); // unlock after verification
+    ret = pthread_mutex_unlock(&lock);
+    if (ret != 0) {
+        fprintf(stderr, "Error locking mutex: %s\n", strerror(ret));
+	exit(EXIT_FAILURE);
+    }
+	     
 
     strcpy(verification->error_description, "Verified SHA-1 hash");
     write_msg(fd, &wrapper);
@@ -320,11 +332,6 @@ void sigint_handler(int signo) {
 int main(int argc, char *argv[]) {
     // Handling signals
     signal(SIGINT, sigint_handler);
-
-    if (pthread_mutex_init(&lock, NULL) != 0) {
-        printf("\n mutex init failed\n");
-        return 1;
-    }
 
     if (pthread_mutex_init(&lock, NULL) != 0) {
         printf("\n mutex init failed\n");
