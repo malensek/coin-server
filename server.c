@@ -280,11 +280,13 @@ void *client_thread(void* client_fd) {
        ssize_t bytes_read = read_msg(fd, &msg);
        if(bytes_read == -1){
             perror("read_msg");
+	    close(fd); // Making sure to close the socket
             return NULL;
        }
        else if (bytes_read == 0) {
            LOGP("Disconnecting client\n");
-            return NULL;
+           close(fd); // Making sure to close the socket
+           return NULL;
        }
        if (difftime(time(NULL), task_start_time) > 24 * 60 * 60) {
             generate_new_task();
@@ -302,7 +304,7 @@ void *client_thread(void* client_fd) {
                 LOG("ERROR: unknown message type: %d\n", msg.header.msg_type);
         }
     }
-    close(fd);
+    close(fd); // Wont ever reach this but I am keeping it as a memento to whoeevr put it here
     return NULL;
 }
 
