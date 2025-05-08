@@ -280,11 +280,11 @@ void *client_thread(void* client_fd) {
        ssize_t bytes_read = read_msg(fd, &msg);
        if(bytes_read == -1){
             perror("read_msg");
-            return NULL;
+            break;
        }
        else if (bytes_read == 0) {
            LOGP("Disconnecting client\n");
-            return NULL;
+           break;
        }
        if (difftime(time(NULL), task_start_time) > 24 * 60 * 60) {
             generate_new_task();
@@ -302,6 +302,7 @@ void *client_thread(void* client_fd) {
                 LOG("ERROR: unknown message type: %d\n", msg.header.msg_type);
         }
     }
+    // Once we break we close and return null
     close(fd);
     return NULL;
 }
