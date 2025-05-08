@@ -5,13 +5,14 @@
 #include <stdio.h>
 #include <inttypes.h>
 
-#include "task.h"
+
 
 #ifndef DEBUG_ON
 #define DEBUG_ON 1
 #endif
 
 #define MAX_USER_LEN 24
+#define MAX_DATA_LEN 256
 
 struct __attribute__((__packed__)) msg_header {
     uint64_t msg_len;
@@ -25,7 +26,7 @@ struct __attribute__((__packed__)) msg_request_task {
 
 struct __attribute__((__packed__)) msg_task {
         struct msg_header header;
-        char block[MAX_BLOCK_LEN];
+        char block[MAX_DATA_LEN];
         uint32_t difficulty_mask;
         uint64_t sequence_num;
 };
@@ -33,7 +34,7 @@ struct __attribute__((__packed__)) msg_task {
 struct __attribute__((__packed__)) msg_solution {
         struct msg_header header;
         char username[MAX_USER_LEN];
-        char block[MAX_BLOCK_LEN];
+        char block[MAX_DATA_LEN];
         uint32_t difficulty_mask;
         uint64_t nonce;
         uint64_t sequence_num;
@@ -63,6 +64,7 @@ union __attribute__((__packed__)) msg_wrapper {
         struct msg_verification verification;
         struct msg_heartbeat heartbeat;
         struct msg_heartbeat_reply heartbeat_reply;
+        uint8_t _padding[1024];
 };
 
 enum MSG_TYPES {

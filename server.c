@@ -108,7 +108,7 @@ void generate_new_task() {
 
 void print_usage(char *prog_name)
 {
-    printf("Usage: %s port [-s seed] [-a adjective_file] [-n animal_file] [-l log_file]" , prog_name);
+    printf("Usage: %s [-s seed] [-a adjective_file] [-n animal_file] [-l log_file]" , prog_name);
     printf("\n");
     printf("Options:\n"
 "    * -s    Specify the seed number\n"
@@ -166,7 +166,6 @@ void handle_heartbeat(int fd, struct msg_heartbeat *hb)
 
 void handle_request_task(int fd, struct msg_request_task *req)
 {
-    //LOG("[TASK REQUEST] User: %s, block: %s, difficulty: %u\n", req->username, current_block, current_difficulty_mask);
     LOG("[TASK REQUEST] User: %s\n", req->username);
     struct user *user = find_user(req->username);
     if (user == NULL) {
@@ -177,6 +176,7 @@ void handle_request_task(int fd, struct msg_request_task *req)
     if (difftime(time(NULL), user->request_timestamp) < 10) {
         // User has requested a task too soon, must wait 10 seconds
         union msg_wrapper wrapper = create_msg(MSG_TASK);
+        LOG("[TASK REQUEST] gennerated diff %d\n",wrapper.task.difficulty_mask);
         wrapper.task.sequence_num = 0;
         write_msg(fd, &wrapper);
         return;
