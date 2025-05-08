@@ -141,6 +141,30 @@ struct user *add_user(char *username)
     return u;
 }
 
+struct user *remove_user(char *username) {
+    struct user *curr_user = user_list;
+    
+    // If head 
+    if (strcmp(curr_user->username, username) == 0) {
+        user_list = user_list->next;
+        
+        return curr_user;
+    }
+    // Else
+    curr_user = curr_user->next;
+    struct user *prev_user = user_list;
+    while (curr_user != NULL) {
+        if (strcmp(curr_user->username, username) == 0) {
+            prev_user->next = curr_user->next;
+            
+            return curr_user;
+        }
+        prev_user->next = curr_user;
+        curr_user = curr_user->next;
+    }
+    return NULL;
+}
+
 bool validate_heartbeat(struct user *u)
 {
     return (difftime(time(NULL), u->heartbeat_timestamp) >= 10);
@@ -272,6 +296,24 @@ void handle_solution(int fd, struct msg_solution *solution)
     write_msg(fd, &wrapper);
 }
 
+void handle_goodbye(int fd, struct msg_goodbye *goodbye) {
+    struct user *user = remove_user(goodbye->username);
+    if (user == NULL) {
+        // Unknown user, not sending back anything
+        return;
+    }
+    LOG("%s is disconnecting, bye!\n", user->username);
+    free(user);
+    //
+    // Send back their leaderboard standing
+    /*
+    union msg_wrapper wrapper = create_msg(MSG_GOODBYE);
+    strcpy(wrapper.goodbye.username, "unknown");
+    strcpy(wrapper.goodbye.leaderboard_standing, their_leaderboard_standing);
+    write_msg(fd, &wrapper);
+    */
+}
+
 void *client_thread(void* client_fd) {
     int fd = (int) (long) client_fd;
     while (true) {
@@ -297,6 +339,8 @@ void *client_thread(void* client_fd) {
             case MSG_SOLUTION: handle_solution(fd, (struct msg_solution *) &msg.solution);
                                break;
             case MSG_HEARTBEAT: handle_heartbeat(fd, (struct msg_heartbeat *) &msg.heartbeat);
+                                break;
+            case MSG_GOODBYE: handle_goodbye(fd, (struct msg_goodbye *) &msg.goodbye);
                                 break;
             default:
                 LOG("ERROR: unknown message type: %d\n", msg.header.msg_type);
