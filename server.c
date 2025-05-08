@@ -274,19 +274,20 @@ void handle_solution(int fd, struct msg_solution *solution)
 
 void *client_thread(void* client_fd) {
     int fd = (int) (long) client_fd;
+    bool should_exit = false; // Flag to see if we should exit the while loop
     while (true) {
 
       union msg_wrapper msg;
        ssize_t bytes_read = read_msg(fd, &msg);
        if(bytes_read == -1){
             perror("read_msg");
-	    close(fd); // Making sure to close the socket
-            return NULL;
+	    should_exit = true; // Break out of the loop
+            break;
        }
        else if (bytes_read == 0) {
            LOGP("Disconnecting client\n");
-           close(fd); // Making sure to close the socket
-           return NULL;
+           should_exit = true; // Break out of the loop
+           break;
        }
        if (difftime(time(NULL), task_start_time) > 24 * 60 * 60) {
             generate_new_task();
@@ -304,7 +305,8 @@ void *client_thread(void* client_fd) {
                 LOG("ERROR: unknown message type: %d\n", msg.header.msg_type);
         }
     }
-    close(fd); // Wont ever reach this but I am keeping it as a memento to whoeevr put it here
+    // Once we break we close and return null
+    close(fd);
     return NULL;
 }
 
