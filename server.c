@@ -26,6 +26,8 @@ struct msg_task *current_task = &current_task_wrapper.task;
 static time_t task_start_time = 0;
 
 static pthread_mutex_t lock;
+//so sigint can have socket_fd
+static int socket_fd;
 
 struct options {
     int random_seed;
@@ -316,6 +318,9 @@ void sigint_handler(int signo) {
     task_log_close();
     task_destroy();
     pthread_mutex_destroy(&lock);
+    // first stop listening and free the port
+    shutdown(socket_fd, SHUT_RDWR);  
+    close(socket_fd);
     exit(0);
 }
 
@@ -383,6 +388,14 @@ int main(int argc, char *argv[]) {
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd == -1) {
         perror("socket");
+        return 1;
+    }
+    //Allow immediate reuse of the address if in TIME_WAIT
+    int opt = 1;
+    if (setsockopt(socket_fd, SOL_SOCKET,
+                   SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt(SO_REUSEADDR)");
+        close(socket_fd);
         return 1;
     }
 
