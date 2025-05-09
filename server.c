@@ -108,7 +108,7 @@ void generate_new_task() {
 
 void print_usage(char *prog_name)
 {
-    printf("Usage: %s [-s seed] [-a adjective_file] [-n animal_file] [-l log_file]" , prog_name);
+    printf("Usage: %s port [-s seed] [-a adjective_file] [-n animal_file] [-l log_file]" , prog_name);
     printf("\n");
     printf("Options:\n"
 "    * -s    Specify the seed number\n"
@@ -135,6 +135,8 @@ struct user *add_user(char *username)
 {
     struct user *u = calloc(1, sizeof(struct user));
     strncpy(u->username, username, MAX_USER_LEN - 1);
+    //ensure null termination
+    u->username[MAX_USER_LEN-1] = '\0';
     u->heartbeat_timestamp = 0;
     u->next = user_list;
     user_list = u;
@@ -318,7 +320,7 @@ void sigint_handler(int signo) {
 }
 
 int main(int argc, char *argv[]) {
-    // Handling signals
+    // Handling signalsƒ
     signal(SIGINT, sigint_handler);
 
     if (pthread_mutex_init(&lock, NULL) != 0) {

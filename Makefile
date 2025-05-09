@@ -11,7 +11,7 @@ CFLAGS += -g -Wall -pthread -I/usr/include/protobuf-c -DLOGGER=$(LOGGER) -DVERSI
 LDLIBS += -lprotobuf-c 
 LDFLAGS +=
 
-src=server.c common.c task.c sha1.c
+src=server.c common.c task.c sha1.c coin.pb-c.c
 obj=$(src:.c=.o)
 
 all: $(bin)
@@ -19,10 +19,12 @@ all: $(bin)
 $(bin): $(obj)
 	$(CC) $(CFLAGS) $(LDLIBS) $(LDFLAGS) $(obj) -o $@
 
-server.o: server.h server.c common.o logger.h
-common.o: common.h logger.h
-task.o: task.h task.c logger.h
-sha1.o: sha1.c sha1.h
+server.o: server.c server.h common.h coin.pb-c.h
+common.o: common.c common.h logger.h
+task.o:   task.c   task.h   logger.h
+sha1.o:   sha1.c   sha1.h
+coin.pb-c.o: coin.pb-c.c coin.pb-c.h
+
 
 clean:
 	rm -f $(bin) $(obj) vgcore.*

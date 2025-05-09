@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package coin;
+
+// Exactly one of these messages will be set.
+message Envelope {
+  oneof body {
+    RequestTask       request_task      = 1;
+    Task              task              = 2;
+    Solution          solution          = 3;
+    Verification      verification      = 4;
+    Heartbeat         heartbeat         = 5;
+    HeartbeatReply    heartbeat_reply   = 6;
+  }
+}
+
+message RequestTask {
+  string username = 1;
+}
+
+message Task {
+  string block            = 1;
+  uint32 difficulty_mask  = 2;
+  uint64 sequence_num     = 3;
+}
+
+message Solution {
+  string username         = 1;
+  string block            = 2;
+  uint32 difficulty_mask  = 3;
+  uint64 nonce            = 4;
+  uint64 sequence_num     = 5;
+}
+
+message Verification {
+  bool ok                      = 1;
+  string error_description     = 2;
+}
+
+message Heartbeat {
+  string username      = 1;
+}
+
+message HeartbeatReply {
+  uint64 sequence_num  = 1;
+}
