@@ -26,6 +26,8 @@ struct msg_task *current_task = &current_task_wrapper.task;
 static time_t task_start_time = 0;
 
 static pthread_mutex_t lock;
+//so sigint can have socket_fd
+static int socket_fd;
 
 struct options {
     int random_seed;
@@ -135,6 +137,8 @@ struct user *add_user(char *username)
 {
     struct user *u = calloc(1, sizeof(struct user));
     strncpy(u->username, username, MAX_USER_LEN - 1);
+    //ensure null termination
+    u->username[MAX_USER_LEN-1] = '\0';
     u->heartbeat_timestamp = 0;
     u->next = user_list;
     user_list = u;
@@ -166,7 +170,6 @@ void handle_heartbeat(int fd, struct msg_heartbeat *hb)
 
 void handle_request_task(int fd, struct msg_request_task *req)
 {
-    //LOG("[TASK REQUEST] User: %s, block: %s, difficulty: %u\n", req->username, current_block, current_difficulty_mask);
     LOG("[TASK REQUEST] User: %s\n", req->username);
     struct user *user = find_user(req->username);
     if (user == NULL) {
@@ -177,6 +180,7 @@ void handle_request_task(int fd, struct msg_request_task *req)
     if (difftime(time(NULL), user->request_timestamp) < 10) {
         // User has requested a task too soon, must wait 10 seconds
         union msg_wrapper wrapper = create_msg(MSG_TASK);
+        LOG("[TASK REQUEST] gennerated diff %d\n",wrapper.task.difficulty_mask);
         wrapper.task.sequence_num = 0;
         write_msg(fd, &wrapper);
         return;
@@ -315,11 +319,14 @@ void sigint_handler(int signo) {
     task_log_close();
     task_destroy();
     pthread_mutex_destroy(&lock);
+    // first stop listening and free the port
+    shutdown(socket_fd, SHUT_RDWR);  
+    close(socket_fd);
     exit(0);
 }
 
 int main(int argc, char *argv[]) {
-    // Handling signals
+    // Handling signalsƒ
     signal(SIGINT, sigint_handler);
 
     if (pthread_mutex_init(&lock, NULL) != 0) {
@@ -382,6 +389,14 @@ int main(int argc, char *argv[]) {
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd == -1) {
         perror("socket");
+        return 1;
+    }
+    //Allow immediate reuse of the address if in TIME_WAIT
+    int opt = 1;
+    if (setsockopt(socket_fd, SOL_SOCKET,
+                   SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt(SO_REUSEADDR)");
+        close(socket_fd);
         return 1;
     }
 
