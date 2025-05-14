@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
+#include <errno.h>
 
 #include "common.h"
 #include "logger.h"
@@ -26,6 +27,9 @@ struct msg_task *current_task = &current_task_wrapper.task;
 static time_t task_start_time = 0;
 
 static pthread_mutex_t lock;
+
+static int socket_fd = -1;
+static volatile sig_atomic_t running = 1;
 
 struct options {
     int random_seed;
@@ -312,13 +316,29 @@ void *client_thread(void* client_fd) {
 */
 void sigint_handler(int signo) {
     printf("SIGINT received. Goodbye...\n\n");
+    running = 0; // Set running to false
+}
+
+// Added cleanup function to centralize resource release
+void cleanup_resources() {
+    // Close the socket if it's open
+    if (socket_fd != -1) {
+        shutdown(socket_fd, SHUT_RDWR);
+        close(socket_fd);
+        socket_fd = -1;
+    }
+    
+    // Close task log and destroy resources
     task_log_close();
     task_destroy();
     pthread_mutex_destroy(&lock);
-    exit(0);
+    
+    printf("Server shutdown complete.\n");
 }
 
 int main(int argc, char *argv[]) {
+    int exit_code = 0;  // Added to track exit status
+    
     // Handling signals
     signal(SIGINT, sigint_handler);
 
@@ -382,7 +402,16 @@ int main(int argc, char *argv[]) {
     int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd == -1) {
         perror("socket");
-        return 1;
+        exit_code = 1;
+        goto cleanup;
+    }
+
+    // Allow immediate reuse of the address if in TIME_WAIT
+    int opt = 1;
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt(SO_REUSEADDR)");
+        exit_code = 1;
+        goto cleanup;
     }
 
     // bind to the port specified above
@@ -392,20 +421,21 @@ int main(int argc, char *argv[]) {
     addr.sin_port = htons(port);
     if (bind(socket_fd, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
         perror("bind");
-	close(socket_fd);  // Close socket before returning
-        return 1;
+        exit_code = 1;
+        goto cleanup;
     }
 
     // start listening for clients to connect
     if (listen(socket_fd, 10) == -1) {
         perror("listen");
-	close(socket_fd);  // Close socket before returning
-        return 1;
+        exit_code = 1;
+        goto cleanup;
     }
 
     LOG("Listening on port %d\n", port);
 
-    while (true) {
+    // Use running flag instead of infinite loop
+    while (running) {
         /* Outer loop: this keeps accepting connection */
         struct sockaddr_in client_addr = { 0 };
         socklen_t slen = sizeof(client_addr);
@@ -417,8 +447,20 @@ int main(int argc, char *argv[]) {
                 &slen);
 
         if (client_fd == -1) {
+            // Handle EINTR (interrupted by signal)
+            if (errno == EINTR) {
+                // Check running flag we might have been interrupted by SIGINT
+                if (!running) {
+                    LOG("Server shutdown requested during accept()\n");
+                    break;
+                }
+                // Otherwise, just try again
+                continue;
+            }
+            
+            // For other errors, log but keep trying
             perror("accept");
-            return 1;
+            continue;  // Continue for accept errors
         }
 
 
@@ -435,7 +477,9 @@ int main(int argc, char *argv[]) {
         pthread_create(&thread, NULL, client_thread, (void *) (long) client_fd);
         pthread_detach(thread);
     }
-    //Closing log_file before we exit the server.
-    // Add finishing commands to sigint handler function
-    return 0; 
+
+cleanup:
+    // Call cleanup function to release resources
+    cleanup_resources();
+    return exit_code;
 }
