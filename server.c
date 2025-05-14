@@ -26,7 +26,8 @@ static union msg_wrapper current_task_wrapper;
 struct msg_task *current_task = &current_task_wrapper.task;
 static time_t task_start_time = 0;
 
-static pthread_mutex_t lock;
+static pthread_mutex_t task_mutex;
+static pthread_mutex_t user_list_mutex;
 
 static int socket_fd = -1;
 static volatile sig_atomic_t running = 1;
@@ -83,6 +84,7 @@ void sprint_binary32(uint32_t num, char buf[33]) {
 }
 
 void generate_new_task() {
+    pthread_mutex_lock(&task_mutex);
     time_t now = time(NULL);
     uint8_t leading_zeros = __builtin_clz(current_task->difficulty_mask);
     if (task_start_time == 0) {
@@ -108,6 +110,7 @@ void generate_new_task() {
     char mask_buf[33];
     sprint_binary32(current_task->difficulty_mask, mask_buf);
     LOG("Difficulty mask: %s (%u leading zeros)\n", mask_buf, __builtin_clz(current_task->difficulty_mask));
+    pthread_mutex_unlock(&task_mutex);
 }
 
 void print_usage(char *prog_name)
@@ -124,24 +127,36 @@ void print_usage(char *prog_name)
 
 struct user *find_user(char *username)
 {
+    pthread_mutex_lock(&user_list_mutex);
     struct user *curr_user = user_list;
     while (curr_user != NULL) {
       if (strcmp(curr_user->username, username) == 0) {
+        pthread_mutex_unlock(&user_list_mutex);
         return curr_user;
       }
       curr_user = curr_user->next;
     }
+    pthread_mutex_unlock(&user_list_mutex);
     return NULL;
     
 }
 
 struct user *add_user(char *username)
 {
+    pthread_mutex_lock(&user_list_mutex);
+    
+    struct user* existing = find_user(username);
+    if (existing) {
+        pthread_mutex_unlock(&user_list_mutex);
+        return existing;
+    }
     struct user *u = calloc(1, sizeof(struct user));
     strncpy(u->username, username, MAX_USER_LEN - 1);
     u->heartbeat_timestamp = 0;
     u->next = user_list;
     user_list = u;
+
+    pthread_mutex_unlock(&user_list_mutex);
     return u;
 }
 
@@ -150,12 +165,12 @@ bool validate_heartbeat(struct user *u)
     return (difftime(time(NULL), u->heartbeat_timestamp) >= 10);
 }
 
-void handle_heartbeat(int fd, struct msg_heartbeat *hb)
+void handle_heartbeat(int fd, struct msg_heartbeat *hb, struct user* user)
 {
     LOG("[HEARTBEAT] User: %s\n", hb->username);
     union msg_wrapper wrapper = create_msg(MSG_HEARTBEAT_REPLY);
 
-    struct user *user = find_user(hb->username);
+    
     if (user == NULL || validate_heartbeat(user) == false) {
         wrapper.heartbeat_reply.sequence_num = 0;
         write_msg(fd, &wrapper);
@@ -168,15 +183,16 @@ void handle_heartbeat(int fd, struct msg_heartbeat *hb)
     write_msg(fd, &wrapper);
 }
 
-void handle_request_task(int fd, struct msg_request_task *req)
+void handle_request_task(int fd, struct msg_request_task *req, struct user** user_ref)
 {
     //LOG("[TASK REQUEST] User: %s, block: %s, difficulty: %u\n", req->username, current_block, current_difficulty_mask);
     LOG("[TASK REQUEST] User: %s\n", req->username);
-    struct user *user = find_user(req->username);
-    if (user == NULL) {
-        LOG("Adding new user account: %s\n", req->username);
-        user = add_user(req->username);
+    if (*user_ref == NULL) {
+        *user_ref = add_user(req->username);
     }
+
+    struct user* user = *user_ref;
+
 
     if (difftime(time(NULL), user->request_timestamp) < 10) {
         // User has requested a task too soon, must wait 10 seconds
@@ -219,13 +235,14 @@ bool verify_solution(struct msg_solution *solution)
     return (hash_front & current_task->difficulty_mask) == hash_front;
 }
 
-void handle_solution(int fd, struct msg_solution *solution)
+void handle_solution(int fd, struct msg_solution *solution, struct user* user)
 {
     LOG("[SOLUTION SUBMITTED] User: %s, block: %s, difficulty: %u, NONCE: %lu\n", solution->username, solution->block, solution->difficulty_mask, solution->nonce);
     
     union msg_wrapper wrapper = create_msg(MSG_VERIFICATION);
     struct msg_verification *verification = &wrapper.verification;
     verification->ok = false; // assume the solution is not valid by default
+    pthread_mutex_lock(&task_mutex);
 
     /* We could directly verify the solution, but let's make sure it's the same
      * sequence number, block, and difficulty first: */
@@ -238,17 +255,19 @@ void handle_solution(int fd, struct msg_solution *solution)
     if (strcmp(current_task->block, solution->block) != 0)
     {
         strcpy(verification->error_description, "Block does not match current block on server");
+        pthread_mutex_unlock(&task_mutex);
         write_msg(fd, &wrapper);
         return;
     }
     
     if (current_task->difficulty_mask !=  solution->difficulty_mask) {
         strcpy(verification->error_description, "Difficulty does not match current difficulty on server");
+        pthread_mutex_unlock(&task_mutex);
         write_msg(fd, &wrapper);
         return;
     }
 
-    struct user *u = find_user(solution->username);
+    
     if (u == NULL) {
         strcpy(verification->error_description, "Unknown user");
         write_msg(fd, &wrapper);
@@ -271,13 +290,14 @@ void handle_solution(int fd, struct msg_solution *solution)
     }
     
     pthread_mutex_unlock(&lock); // unlock after verification
-
+    pthread_mutex_unlock(&task_mutex);
     strcpy(verification->error_description, "Verified SHA-1 hash");
     write_msg(fd, &wrapper);
 }
 
 void *client_thread(void* client_fd) {
-    int fd = (int) (long) client_fd;
+    int fd = (int)(long)arg;
+    struct user *user = NULL;
     while (true) {
 
       union msg_wrapper msg;
@@ -296,11 +316,11 @@ void *client_thread(void* client_fd) {
         }
 
         switch (msg.header.msg_type) {
-            case MSG_REQUEST_TASK: handle_request_task(fd, (struct msg_request_task *) &msg.request_task);
+            case MSG_REQUEST_TASK: handle_request_task(fd, &msg.request_task, &user);
                                    break;
-            case MSG_SOLUTION: handle_solution(fd, (struct msg_solution *) &msg.solution);
+            case MSG_SOLUTION: handle_solution(fd, &msg.solution, user);
                                break;
-            case MSG_HEARTBEAT: handle_heartbeat(fd, (struct msg_heartbeat *) &msg.heartbeat);
+            case MSG_HEARTBEAT: handle_heartbeat(fd, &msg.heartbeat, user);
                                 break;
             default:
                 LOG("ERROR: unknown message type: %d\n", msg.header.msg_type);
@@ -331,7 +351,8 @@ void cleanup_resources() {
     // Close task log and destroy resources
     task_log_close();
     task_destroy();
-    pthread_mutex_destroy(&lock);
+    pthread_mutex_destroy(&task_mutex);
+    pthread_mutex_destroy(&user_list_mutex);
     
     printf("Server shutdown complete.\n");
 }
@@ -342,7 +363,8 @@ int main(int argc, char *argv[]) {
     // Handling signals
     signal(SIGINT, sigint_handler);
 
-    if (pthread_mutex_init(&lock, NULL) != 0) {
+    if (pthread_mutex_init(&task_mutex, NULL) ||
+        pthread_mutex_init(&user_list_mutex, NULL)) {
         printf("\n mutex init failed\n");
         return 1;
     }
