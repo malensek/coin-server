@@ -431,37 +431,27 @@ int main(int argc, char *argv[]) {
 
     LOG("Listening on port %d\n", port);
 
-    // Use running flag instead of infinite loop
     while (running) {
-        /* Outer loop: this keeps accepting connection */
         struct sockaddr_in client_addr = { 0 };
         socklen_t slen = sizeof(client_addr);
 
-	// accept client connection
+        // accept client connection
         int client_fd = accept(
                 socket_fd,
                 (struct sockaddr *) &client_addr,
                 &slen);
 
         if (client_fd == -1) {
-            // Handle EINTR (interrupted by signal)
-            if (errno == EINTR) {
-                // Check running flag we might have been interrupted by SIGINT
-                if (!running) {
-                    LOG("Server shutdown requested during accept()\n");
-                    break;
-                }
-                // Otherwise, just try again
+            if (errno == EINTR && running == false) {
+                // Interrupted by signal, time to shut down
+                break;
+            } else {
+                perror("accept");
                 continue;
             }
-            
-            // For other errors, log but keep trying
-            perror("accept");
-            continue;  // Continue for accept errors
         }
 
-
-	// find out their info (host name, port)
+	// Get client info (host name, port)
         char remote_host[INET_ADDRSTRLEN];
         inet_ntop(
                 client_addr.sin_family,
