@@ -26,8 +26,8 @@ static union msg_wrapper current_task_wrapper;
 struct msg_task *current_task = &current_task_wrapper.task;
 static time_t task_start_time = 0;
 
-static pthread_mutex_t task_mutex;
-static pthread_mutex_t user_list_mutex;
+static pthread_mutex_t task_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t user_list_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int socket_fd = -1;
 static volatile sig_atomic_t running = 1;
@@ -143,13 +143,13 @@ struct user *find_user(char *username)
 
 struct user *add_user(char *username)
 {
-    pthread_mutex_lock(&user_list_mutex);
-    
-    struct user* existing = find_user(username);
-    if (existing) {
+    struct user *existing = find_user(username);
+    if (existing != NULL) {
         pthread_mutex_unlock(&user_list_mutex);
-        return existing;
+        return existing; 
     }
+
+    pthread_mutex_lock(&user_list_mutex);
     struct user *u = calloc(1, sizeof(struct user));
     strncpy(u->username, username, MAX_USER_LEN - 1);
     u->heartbeat_timestamp = 0;
@@ -248,6 +248,7 @@ void handle_solution(int fd, struct msg_solution *solution, struct user* user)
      * sequence number, block, and difficulty first: */
     if (current_task->sequence_num != solution->sequence_num) {
         strcpy(verification->error_description, "Sequence number mismatch");
+        pthread_mutex_unlock(&task_mutex);
         write_msg(fd, &wrapper);
         return;
     }
@@ -268,13 +269,14 @@ void handle_solution(int fd, struct msg_solution *solution, struct user* user)
     }
 
     
-    if (u == NULL) {
+    if (user == NULL) {
         strcpy(verification->error_description, "Unknown user");
         write_msg(fd, &wrapper);
+        pthread_mutex_unlock(&task_mutex);
         return;
     }
 
-    pthread_mutex_lock(&lock); // lock before verification so that it is only executed by one thread at a time
+    // lock before verification so that it is only executed by one thread at a time
     verification->ok = verify_solution(solution);
 
     LOG("[SOLUTION by %s %s!]\n", solution->username, verification->ok ? "ACCEPTED" : "REJECTED");
@@ -282,21 +284,20 @@ void handle_solution(int fd, struct msg_solution *solution, struct user* user)
     if (verification->ok) {
         // Update the user's request timestamp so they can request a new task
         // immediately after receiving the notification
-        u->request_timestamp = 0;
+        user->request_timestamp = 0;
 
         task_log_add(solution);
         generate_new_task();
         LOG("Generated new block: %s\n", current_task->block);
     }
     
-    pthread_mutex_unlock(&lock); // unlock after verification
     pthread_mutex_unlock(&task_mutex);
     strcpy(verification->error_description, "Verified SHA-1 hash");
     write_msg(fd, &wrapper);
 }
 
 void *client_thread(void* client_fd) {
-    int fd = (int)(long)arg;
+    int fd = (int)(long)client_fd;
     struct user *user = NULL;
     while (true) {
 
