@@ -55,6 +55,12 @@ struct __attribute__((__packed__)) msg_heartbeat_reply {
         uint64_t sequence_num;
 };
 
+struct __attribute__((__packed__)) msg_goodbye {
+        struct msg_header header;
+        char username[MAX_USER_LEN];
+        char leaderboard_standing[128];
+};
+
 union __attribute__((__packed__)) msg_wrapper {
         struct msg_header header;
         struct msg_request_task request_task;
@@ -63,6 +69,7 @@ union __attribute__((__packed__)) msg_wrapper {
         struct msg_verification verification;
         struct msg_heartbeat heartbeat;
         struct msg_heartbeat_reply heartbeat_reply;
+        struct msg_goodbye goodbye;
 };
 
 enum MSG_TYPES {
@@ -72,6 +79,7 @@ enum MSG_TYPES {
         MSG_VERIFICATION,
         MSG_HEARTBEAT,
         MSG_HEARTBEAT_REPLY,
+        MSG_GOODBYE,
 };
 
 size_t msg_size(enum MSG_TYPES type);
