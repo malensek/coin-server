@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package coin_msg;
+
+message Envelope {
+    oneof body {
+        RegistrationRequest registration_request = 1;
+        RegistrationReply registration_reply = 2;
+
+        TaskRequest task_request = 3;
+        TaskReply task_reply = 4;
+
+        VerificationRequest verification_request = 5;
+        VerificationReply verification_reply = 6;
+
+        Heartbeat heartbeat = 7;
+        HeartbeatReply heartbeat_reply = 8;
+    }
+}
+
+message RegistrationRequest {
+    string username = 1;
+}
+
+message RegistrationReply {
+    bool ok = 1;
+}
+
+message TaskRequest { }
+
+message TaskReply {
+    string block = 1;
+    uint32 difficulty_mask = 2;
+    uint64 sequence_num = 3;
+}
+
+message VerificationRequest {
+    string block = 1;
+    uint32 difficulty_mask = 2;
+    uint64 nonce = 3;
+    uint64 sequence_num = 4;
+}
+
+message VerificationReply {
+    bool ok = 1;
+    string diagnostic = 2;
+}
+
+message Heartbeat { }
+
+message HeartbeatReply {
+    uint64 sequence_num = 1;
+}
