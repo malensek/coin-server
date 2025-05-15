@@ -1,5 +1,9 @@
 /coin-server
 /task_log.txt
+/coin-messages.pb-c.c
+/coin-messages.pb-c.h
+/demo-client/coin_messages_pb2.py
+/demo-client/__pycache__
 
 # Prerequisites
 *.d
