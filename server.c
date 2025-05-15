@@ -405,12 +405,10 @@ int main(int argc, char *argv[]) {
         goto cleanup;
     }
 
-    // Allow immediate reuse of the address if in TIME_WAIT
+    // allow immediate reuse of the address if in TIME_WAIT
     int opt = 1;
     if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("setsockopt(SO_REUSEADDR)");
-        exit_code = 1;
-        goto cleanup;
     }
 
     // bind to the port specified above
