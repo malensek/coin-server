@@ -384,14 +384,13 @@ int main(int argc, char *argv[]) {
     }
     
     LOG("Starting coin-server version %.1f...\n", VERSION);
-    LOG("%s", "(c) 2023 CS 521 Students\n");
+    LOG("%s", "(c) 2025 CS 521 Students\n");
 
     if (opts.random_seed == 0) {
         opts.random_seed = time(NULL);
     }
     LOG("Random seed: %d\n", opts.random_seed);
     srand(opts.random_seed);
-    
    
     task_init(opts.adj_file, opts.animal_file);
     current_task_wrapper = create_msg(MSG_TASK);
