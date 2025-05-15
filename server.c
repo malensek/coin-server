@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <errno.h>
 
+#include "coin-messages.pb-c.h"
 #include "common.h"
 #include "logger.h"
 #include "task.h"
@@ -131,11 +132,15 @@ struct user *find_user(char *username)
       curr_user = curr_user->next;
     }
     return NULL;
-    
 }
 
 struct user *add_user(char *username)
 {
+    struct user *existing = find_user(username);
+    if (existing != NULL) {
+        return NULL;
+    }
+
     struct user *u = calloc(1, sizeof(struct user));
     strncpy(u->username, username, MAX_USER_LEN - 1);
     u->heartbeat_timestamp = 0;
@@ -149,13 +154,12 @@ bool validate_heartbeat(struct user *u)
     return (difftime(time(NULL), u->heartbeat_timestamp) >= 10);
 }
 
-void handle_heartbeat(int fd, struct msg_heartbeat *hb)
+void pb_handle_heartbeat(int fd, CoinMsg__Heartbeat *hb, struct user *user)
 {
-    LOG("[HEARTBEAT] User: %s\n", hb->username);
+    LOG("[HEARTBEAT] User: %s\n", user->username);
     union msg_wrapper wrapper = create_msg(MSG_HEARTBEAT_REPLY);
 
-    struct user *user = find_user(hb->username);
-    if (user == NULL || validate_heartbeat(user) == false) {
+    if (validate_heartbeat(user) == false) {
         wrapper.heartbeat_reply.sequence_num = 0;
         write_msg(fd, &wrapper);
         return;
@@ -167,29 +171,25 @@ void handle_heartbeat(int fd, struct msg_heartbeat *hb)
     write_msg(fd, &wrapper);
 }
 
-void handle_request_task(int fd, struct msg_request_task *req)
+void handle_request_task(int fd, CoinMsg__TaskRequest *req, struct user *user)
 {
-    //LOG("[TASK REQUEST] User: %s, block: %s, difficulty: %u\n", req->username, current_block, current_difficulty_mask);
-    LOG("[TASK REQUEST] User: %s\n", req->username);
-    struct user *user = find_user(req->username);
-    if (user == NULL) {
-        LOG("Adding new user account: %s\n", req->username);
-        user = add_user(req->username);
-    }
+    LOG("[TASK REQUEST] User: %s\n", user->username);
 
     if (difftime(time(NULL), user->request_timestamp) < 10) {
         // User has requested a task too soon, must wait 10 seconds
-        union msg_wrapper wrapper = create_msg(MSG_TASK);
-        wrapper.task.sequence_num = 0;
-        write_msg(fd, &wrapper);
+        send_task_reply(fd, "", 0, 0);
         return;
     }
 
     user->request_timestamp = time(NULL);
-    write_msg(fd, &current_task_wrapper);
+    send_task_reply(
+        fd,
+        current_task_wrapper.task.block,
+        current_task_wrapper.task.difficulty_mask,
+        current_task_wrapper.task.sequence_num);
 }
 
-bool verify_solution(struct msg_solution *solution)
+bool verify_solution(struct CoinMsg__VerificationRequest *solution)
 {
     uint8_t digest[SHA1_HASH_SIZE];
     const char *check_format = "%s%lu";
@@ -218,9 +218,9 @@ bool verify_solution(struct msg_solution *solution)
     return (hash_front & current_task->difficulty_mask) == hash_front;
 }
 
-void handle_solution(int fd, struct msg_solution *solution)
+void handle_verification(int fd, CoinMsg__VerificationRequest *solution, struct user *user)
 {
-    LOG("[SOLUTION SUBMITTED] User: %s, block: %s, difficulty: %u, NONCE: %lu\n", solution->username, solution->block, solution->difficulty_mask, solution->nonce);
+    LOG("[SOLUTION SUBMITTED] User: %s, block: %s, difficulty: %u, NONCE: %lu\n", user->username, solution->block, solution->difficulty_mask, solution->nonce);
     
     union msg_wrapper wrapper = create_msg(MSG_VERIFICATION);
     struct msg_verification *verification = &wrapper.verification;
@@ -247,7 +247,7 @@ void handle_solution(int fd, struct msg_solution *solution)
         return;
     }
 
-    struct user *u = find_user(solution->username);
+    struct user *u = find_user(user->username);
     if (u == NULL) {
         strcpy(verification->error_description, "Unknown user");
         write_msg(fd, &wrapper);
@@ -257,52 +257,66 @@ void handle_solution(int fd, struct msg_solution *solution)
     pthread_mutex_lock(&lock); // lock before verification so that it is only executed by one thread at a time
     verification->ok = verify_solution(solution);
 
-    LOG("[SOLUTION by %s %s!]\n", solution->username, verification->ok ? "ACCEPTED" : "REJECTED");
+    LOG("[SOLUTION by %s %s!]\n", user->username, verification->ok ? "ACCEPTED" : "REJECTED");
 
     if (verification->ok) {
         // Update the user's request timestamp so they can request a new task
         // immediately after receiving the notification
         u->request_timestamp = 0;
 
-        task_log_add(solution);
+        // TODO: //task_log_add(solution);
         generate_new_task();
         LOG("Generated new block: %s\n", current_task->block);
     }
     
     pthread_mutex_unlock(&lock); // unlock after verification
 
-    strcpy(verification->error_description, "Verified SHA-1 hash");
-    write_msg(fd, &wrapper);
+    send_verification_reply(fd, verification->ok, "Verified SHA-1 hash");
+}
+
+struct user *handle_registration(int fd, CoinMsg__RegistrationRequest *req)
+{
+    LOG("[REGISTRATION] User: %s\n", req->username);
+
+    struct user *new_user = add_user(req->username);
+    bool success = new_user != NULL;
+
+    if (success == false) {
+        LOG("User already exists: %s\n", req->username);
+    }
+
+    send_registration_reply(fd, success);
+    return new_user;
 }
 
 void *client_thread(void* client_fd) {
     int fd = (int) (long) client_fd;
+    struct user *this_user;
+
     while (true) {
 
-      union msg_wrapper msg;
-       ssize_t bytes_read = read_msg(fd, &msg);
-       if(bytes_read == -1){
-            perror("read_msg");
+        CoinMsg__Envelope *envelope = recv_envelope(fd);
+        if(envelope == NULL){
             break;
-       }
-       else if (bytes_read == 0) {
-           LOGP("Disconnecting client\n");
-           break;
-       }
+        }
        if (difftime(time(NULL), task_start_time) > 24 * 60 * 60) {
             generate_new_task();
             LOG("Task unsolved for 24 hours. Generated new block: %s\n", current_task->block);
         }
 
-        switch (msg.header.msg_type) {
-            case MSG_REQUEST_TASK: handle_request_task(fd, (struct msg_request_task *) &msg.request_task);
-                                   break;
-            case MSG_SOLUTION: handle_solution(fd, (struct msg_solution *) &msg.solution);
-                               break;
-            case MSG_HEARTBEAT: handle_heartbeat(fd, (struct msg_heartbeat *) &msg.heartbeat);
-                                break;
+        switch (envelope->body_case) {
+            case COIN_MSG__ENVELOPE__BODY_REGISTRATION_REQUEST:
+                this_user = handle_registration(fd, envelope->registration_request);
+                break;
+            case COIN_MSG__ENVELOPE__BODY_TASK_REQUEST:
+                handle_request_task(fd, envelope->task_request, this_user);
+                break;
+            case COIN_MSG__ENVELOPE__BODY_VERIFICATION_REQUEST:
+                handle_verification(fd, envelope->verification_request, this_user);
+                break;
+
             default:
-                LOG("ERROR: unknown message type: %d\n", msg.header.msg_type);
+                LOG("ERROR: unknown message type: %d\n", envelope->body_case);
         }
     }
     // Once we break we close and return null

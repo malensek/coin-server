@@ -6,12 +6,15 @@
 #include <inttypes.h>
 
 #include "task.h"
+#include "coin-messages.pb-c.h"
 
 #ifndef DEBUG_ON
 #define DEBUG_ON 1
 #endif
 
 #define MAX_USER_LEN 24
+
+CoinMsg__Envelope *recv_envelope(int fd);
 
 struct __attribute__((__packed__)) msg_header {
     uint64_t msg_len;
@@ -87,14 +90,18 @@ size_t msg_size(enum MSG_TYPES type);
  *  * length - size of the incoming message. If less than 'length' bytes are
  *             received, we'll keep retrying the read() operation.
  */
-int read_len(int fd, void *buf, size_t length);
+ssize_t read_len(int fd, void *buf, size_t length);
 
-int write_len(const int fd, const void *buf, size_t length);
+ssize_t write_len(const int fd, const void *buf, size_t length);
 
 union msg_wrapper create_msg(enum MSG_TYPES type);
 
 int read_msg(int fd, union msg_wrapper *msg);
 
 int write_msg(int fd, const union msg_wrapper *msg);
+
+void send_registration_reply(int fd, bool ok);
+void send_task_reply(int fd, char *block, uint32_t difficulty_mask, uint64_t sequence_num);
+void send_verification_reply(int fd, bool ok, char *diagnostic);
 
 #endif
