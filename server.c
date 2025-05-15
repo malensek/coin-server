@@ -264,7 +264,7 @@ void handle_verification(int fd, CoinMsg__VerificationRequest *solution, struct 
         // immediately after receiving the notification
         u->request_timestamp = 0;
 
-        // TODO: //task_log_add(solution);
+        task_log_add(solution, user->username);
         generate_new_task();
         LOG("Generated new block: %s\n", current_task->block);
     }
