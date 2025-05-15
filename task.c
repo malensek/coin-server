@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include "common.h"
+#include "coin-messages.pb-c.h"
 #include "logger.h"
 
 static size_t ani_idx = 0;
@@ -91,15 +91,15 @@ void task_log_open(char* file_name) {
     }
 }
 
-void task_log_add(struct msg_solution *solution) {
+void task_log_add(CoinMsg__VerificationRequest *solution, char *username) {
     fprintf(
-    log_file, 
-    "%s\t%u\t%lu\t%s\t%ld\n", 
-            solution->block, 
-            solution->difficulty_mask, 
-            solution->nonce, 
-            solution->username, 
-            time(NULL));
+        log_file, 
+        "%s\t%u\t%lu\t%s\t%ld\n", 
+                solution->block, 
+                solution->difficulty_mask, 
+                solution->nonce, 
+                username,
+                time(NULL));
 
     //we fflush the file to ensure the write is on the disk after each update
     fflush(log_file);
