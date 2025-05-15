@@ -28,7 +28,6 @@ static time_t task_start_time = 0;
 
 static pthread_mutex_t lock;
 
-static int socket_fd = -1;
 static volatile sig_atomic_t running = 1;
 
 struct options {
@@ -311,36 +310,22 @@ void *client_thread(void* client_fd) {
     return NULL;
 }
 
-/*
-* Handling SIGINT -> Tells the server to stop listening to connections and terminate ellegantly
-*/
-void sigint_handler(int signo) {
-    printf("SIGINT received. Goodbye...\n\n");
-    running = 0; // Set running to false
-}
-
-// Added cleanup function to centralize resource release
-void cleanup_resources() {
-    // Close the socket if it's open
-    if (socket_fd != -1) {
-        shutdown(socket_fd, SHUT_RDWR);
-        close(socket_fd);
-        socket_fd = -1;
-    }
-    
-    // Close task log and destroy resources
-    task_log_close();
-    task_destroy();
-    pthread_mutex_destroy(&lock);
-    
-    printf("Server shutdown complete.\n");
+/**
+ * Handles signals to shut the main thread down, stop listening for connections,
+ * and clean up.
+ */
+void shutdown_handler(int signo) {
+    running = 0;
 }
 
 int main(int argc, char *argv[]) {
-    int exit_code = 0;  // Added to track exit status
+    int exit_code = 0;
     
-    // Handling signals
-    signal(SIGINT, sigint_handler);
+    // Handle clean shutdown on SIGINT / SIGTERM
+    struct sigaction sa = { 0 };
+    sa.sa_handler = shutdown_handler;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
 
     if (pthread_mutex_init(&lock, NULL) != 0) {
         printf("\n mutex init failed\n");
@@ -466,7 +451,15 @@ int main(int argc, char *argv[]) {
     }
 
 cleanup:
-    // Call cleanup function to release resources
-    cleanup_resources();
+    LOGP("Shutting down...\n");
+
+    close(socket_fd);
+
+    task_log_close();
+    task_destroy();
+
+    pthread_mutex_destroy(&lock);
+
+    LOGP("Shutdown complete.\n");
     return exit_code;
 }
