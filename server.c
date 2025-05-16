@@ -332,6 +332,23 @@ void shutdown_handler(int signo) {
     running = 0;
 }
 
+
+void* task_reset_thread(void* arg) {
+    while(true) {
+	    sleep(10); 
+
+	    pthread_mutex_lock(&lock);
+	    time_t now = time(NULL);
+	    if (now - task_start_time > 86400) {
+		    generate_new_task();
+		    task_start_time = now;
+		    log_info("Task reset after 24 hours of inactivity");
+	    }
+	    pthread_mutex_unlock(&lock);
+    }
+    return NULL;
+}
+
 int main(int argc, char *argv[]) {
     int exit_code = 0;
     
@@ -394,6 +411,13 @@ int main(int argc, char *argv[]) {
     task_init(opts.adj_file, opts.animal_file);
     current_task_wrapper = create_msg(MSG_TASK);
     generate_new_task();
+
+    pthread_t reset_thread;
+    if (pthread_create(&reset_thread, NULL, task_reset_thread,NULL) != 0) {
+	    perror("Failed to create task reset thread");
+	    exit(1);
+    }
+
     task_log_open(opts.log_file);
 
     // create a socket
@@ -477,3 +501,4 @@ cleanup:
     LOGP("Shutdown complete.\n");
     return exit_code;
 }
+
