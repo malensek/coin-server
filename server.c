@@ -299,10 +299,6 @@ void *client_thread(void* client_fd) {
         if(envelope == NULL){
             break;
         }
-       if (difftime(time(NULL), task_start_time) > 24 * 60 * 60) {
-            generate_new_task();
-            LOG("Task unsolved for 24 hours. Generated new block: %s\n", current_task->block);
-        }
 
         switch (envelope->body_case) {
             case COIN_MSG__ENVELOPE__BODY_REGISTRATION_REQUEST:
@@ -330,6 +326,26 @@ void *client_thread(void* client_fd) {
  */
 void shutdown_handler(int signo) {
     running = 0;
+}
+
+
+void* task_reset_thread(void* arg) {
+    while(true) {
+	    sleep(120); 
+
+	    pthread_mutex_lock(&lock);
+	    time_t now = time(NULL);
+            double diff = difftime(now, task_start_time);
+            	    
+	    if (diff > 86400) {
+		    generate_new_task();
+		    char ts[32];
+		    strftime(ts, sizeof ts, "%Y-%m-%d %H:%M:%S", localtime(&now));
+	            LOG("[RESET] task_reset_thread(): 24 Hours Elapsed - Generating New Task at %s\n", ts);
+	    }
+	    pthread_mutex_unlock(&lock);
+    }
+    return NULL;
 }
 
 int main(int argc, char *argv[]) {
@@ -394,6 +410,15 @@ int main(int argc, char *argv[]) {
     task_init(opts.adj_file, opts.animal_file);
     current_task_wrapper = create_msg(MSG_TASK);
     generate_new_task();
+
+    pthread_t reset_thread;
+    if (pthread_create(&reset_thread, NULL, task_reset_thread,NULL) != 0) {
+        perror("Failed to create task reset thread");
+	task_destroy(); 
+	pthread_mutex_destroy(&lock);
+	return 1;
+    }
+
     task_log_open(opts.log_file);
 
     // create a socket
@@ -477,3 +502,4 @@ cleanup:
     LOGP("Shutdown complete.\n");
     return exit_code;
 }
+
