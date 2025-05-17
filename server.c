@@ -17,19 +17,19 @@
 #include <signal.h>
 #include <errno.h>
 
+#include "coin-messages.pb-c.h"
 #include "common.h"
 #include "logger.h"
 #include "task.h"
 #include "sha1.h"
+#include "user_manager.h"
 
 static union msg_wrapper current_task_wrapper;
 struct msg_task *current_task = &current_task_wrapper.task;
 static time_t task_start_time = 0;
 
-static pthread_mutex_t task_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t user_list_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t lock;
 
-static int socket_fd = -1;
 static volatile sig_atomic_t running = 1;
 
 struct options {
@@ -41,14 +41,6 @@ struct options {
 
 static struct options default_options = {0, "adjectives", "animals", "task_log.txt"};
 
-struct user {
-    char username[MAX_USER_LEN];
-    time_t heartbeat_timestamp;
-    time_t request_timestamp;
-    struct user *next;
-};
-
-struct user *user_list = NULL;
 
 uint32_t generate_mask(int zeros)
 {
@@ -84,7 +76,6 @@ void sprint_binary32(uint32_t num, char buf[33]) {
 }
 
 void generate_new_task() {
-    pthread_mutex_lock(&task_mutex);
     time_t now = time(NULL);
     uint8_t leading_zeros = __builtin_clz(current_task->difficulty_mask);
     if (task_start_time == 0) {
@@ -110,7 +101,6 @@ void generate_new_task() {
     char mask_buf[33];
     sprint_binary32(current_task->difficulty_mask, mask_buf);
     LOG("Difficulty mask: %s (%u leading zeros)\n", mask_buf, __builtin_clz(current_task->difficulty_mask));
-    pthread_mutex_unlock(&task_mutex);
 }
 
 void print_usage(char *prog_name)
@@ -127,51 +117,25 @@ void print_usage(char *prog_name)
 
 struct user *find_user(char *username)
 {
-    pthread_mutex_lock(&user_list_mutex);
-    struct user *curr_user = user_list;
-    while (curr_user != NULL) {
-      if (strcmp(curr_user->username, username) == 0) {
-        pthread_mutex_unlock(&user_list_mutex);
-        return curr_user;
-      }
-      curr_user = curr_user->next;
-    }
-    pthread_mutex_unlock(&user_list_mutex);
-    return NULL;
-    
+    return find_user(username);
 }
 
 struct user *add_user(char *username)
 {
-    struct user *existing = find_user(username);
-    if (existing != NULL) {
-        pthread_mutex_unlock(&user_list_mutex);
-        return existing; 
-    }
-
-    pthread_mutex_lock(&user_list_mutex);
-    struct user *u = calloc(1, sizeof(struct user));
-    strncpy(u->username, username, MAX_USER_LEN - 1);
-    u->heartbeat_timestamp = 0;
-    u->next = user_list;
-    user_list = u;
-
-    pthread_mutex_unlock(&user_list_mutex);
-    return u;
+    return user_add(username);
 }
 
 bool validate_heartbeat(struct user *u)
 {
-    return (difftime(time(NULL), u->heartbeat_timestamp) >= 10);
+    return user_is_heartbeat_valid(u);
 }
 
-void handle_heartbeat(int fd, struct msg_heartbeat *hb, struct user* user)
+void pb_handle_heartbeat(int fd, CoinMsg__Heartbeat *hb, struct user *user)
 {
-    LOG("[HEARTBEAT] User: %s\n", hb->username);
+    LOG("[HEARTBEAT] User: %s\n", user->username);
     union msg_wrapper wrapper = create_msg(MSG_HEARTBEAT_REPLY);
 
-    
-    if (user == NULL || validate_heartbeat(user) == false) {
+    if (validate_heartbeat(user) == false) {
         wrapper.heartbeat_reply.sequence_num = 0;
         write_msg(fd, &wrapper);
         return;
@@ -183,30 +147,25 @@ void handle_heartbeat(int fd, struct msg_heartbeat *hb, struct user* user)
     write_msg(fd, &wrapper);
 }
 
-void handle_request_task(int fd, struct msg_request_task *req, struct user** user_ref)
+void handle_request_task(int fd, CoinMsg__TaskRequest *req, struct user *user)
 {
-    //LOG("[TASK REQUEST] User: %s, block: %s, difficulty: %u\n", req->username, current_block, current_difficulty_mask);
-    LOG("[TASK REQUEST] User: %s\n", req->username);
-    if (*user_ref == NULL) {
-        *user_ref = add_user(req->username);
-    }
+    LOG("[TASK REQUEST] User: %s\n", user->username);
 
-    struct user* user = *user_ref;
-
-
-    if (difftime(time(NULL), user->request_timestamp) < 10) {
+    if (!user_can_request_task(user)) {
         // User has requested a task too soon, must wait 10 seconds
-        union msg_wrapper wrapper = create_msg(MSG_TASK);
-        wrapper.task.sequence_num = 0;
-        write_msg(fd, &wrapper);
+        send_task_reply(fd, "", 0, 0);
         return;
     }
 
     user->request_timestamp = time(NULL);
-    write_msg(fd, &current_task_wrapper);
+    send_task_reply(
+        fd,
+        current_task_wrapper.task.block,
+        current_task_wrapper.task.difficulty_mask,
+        current_task_wrapper.task.sequence_num);
 }
 
-bool verify_solution(struct msg_solution *solution)
+bool verify_solution(struct CoinMsg__VerificationRequest *solution)
 {
     uint8_t digest[SHA1_HASH_SIZE];
     const char *check_format = "%s%lu";
@@ -235,20 +194,18 @@ bool verify_solution(struct msg_solution *solution)
     return (hash_front & current_task->difficulty_mask) == hash_front;
 }
 
-void handle_solution(int fd, struct msg_solution *solution, struct user* user)
+void handle_verification(int fd, CoinMsg__VerificationRequest *solution, struct user *user)
 {
-    LOG("[SOLUTION SUBMITTED] User: %s, block: %s, difficulty: %u, NONCE: %lu\n", solution->username, solution->block, solution->difficulty_mask, solution->nonce);
+    LOG("[SOLUTION SUBMITTED] User: %s, block: %s, difficulty: %u, NONCE: %lu\n", user->username, solution->block, solution->difficulty_mask, solution->nonce);
     
     union msg_wrapper wrapper = create_msg(MSG_VERIFICATION);
     struct msg_verification *verification = &wrapper.verification;
     verification->ok = false; // assume the solution is not valid by default
-    pthread_mutex_lock(&task_mutex);
 
     /* We could directly verify the solution, but let's make sure it's the same
      * sequence number, block, and difficulty first: */
     if (current_task->sequence_num != solution->sequence_num) {
         strcpy(verification->error_description, "Sequence number mismatch");
-        pthread_mutex_unlock(&task_mutex);
         write_msg(fd, &wrapper);
         return;
     }
@@ -256,75 +213,86 @@ void handle_solution(int fd, struct msg_solution *solution, struct user* user)
     if (strcmp(current_task->block, solution->block) != 0)
     {
         strcpy(verification->error_description, "Block does not match current block on server");
-        pthread_mutex_unlock(&task_mutex);
         write_msg(fd, &wrapper);
         return;
     }
     
     if (current_task->difficulty_mask !=  solution->difficulty_mask) {
         strcpy(verification->error_description, "Difficulty does not match current difficulty on server");
-        pthread_mutex_unlock(&task_mutex);
         write_msg(fd, &wrapper);
         return;
     }
 
-    
-    if (user == NULL) {
+    struct user *u = find_user(user->username);
+    if (u == NULL) {
         strcpy(verification->error_description, "Unknown user");
         write_msg(fd, &wrapper);
-        pthread_mutex_unlock(&task_mutex);
         return;
     }
 
-    // lock before verification so that it is only executed by one thread at a time
+    pthread_mutex_lock(&lock); // lock before verification so that it is only executed by one thread at a time
     verification->ok = verify_solution(solution);
 
-    LOG("[SOLUTION by %s %s!]\n", solution->username, verification->ok ? "ACCEPTED" : "REJECTED");
+    LOG("[SOLUTION by %s %s!]\n", user->username, verification->ok ? "ACCEPTED" : "REJECTED");
 
     if (verification->ok) {
         // Update the user's request timestamp so they can request a new task
         // immediately after receiving the notification
-        user->request_timestamp = 0;
+        u->request_timestamp = 0;
 
-        task_log_add(solution);
+        task_log_add(solution, user->username);
         generate_new_task();
         LOG("Generated new block: %s\n", current_task->block);
     }
     
-    pthread_mutex_unlock(&task_mutex);
-    strcpy(verification->error_description, "Verified SHA-1 hash");
-    write_msg(fd, &wrapper);
+    pthread_mutex_unlock(&lock); // unlock after verification
+
+    send_verification_reply(fd, verification->ok, "Verified SHA-1 hash");
+}
+
+struct user *handle_registration(int fd, CoinMsg__RegistrationRequest *req)
+{
+    LOG("[REGISTRATION] User: %s\n", req->username);
+
+    struct user *new_user = add_user(req->username);
+    bool success = new_user != NULL;
+
+    if (success == false) {
+        LOG("User already exists: %s\n", req->username);
+    }
+
+    send_registration_reply(fd, success);
+    return new_user;
 }
 
 void *client_thread(void* client_fd) {
-    int fd = (int)(long)client_fd;
-    struct user *user = NULL;
+    int fd = (int) (long) client_fd;
+    struct user *this_user = NULL;
+
     while (true) {
 
-      union msg_wrapper msg;
-       ssize_t bytes_read = read_msg(fd, &msg);
-       if(bytes_read == -1){
-            perror("read_msg");
+        CoinMsg__Envelope *envelope = recv_envelope(fd);
+        if(envelope == NULL){
             break;
-       }
-       else if (bytes_read == 0) {
-           LOGP("Disconnecting client\n");
-           break;
-       }
+        }
        if (difftime(time(NULL), task_start_time) > 24 * 60 * 60) {
             generate_new_task();
             LOG("Task unsolved for 24 hours. Generated new block: %s\n", current_task->block);
         }
 
-        switch (msg.header.msg_type) {
-            case MSG_REQUEST_TASK: handle_request_task(fd, &msg.request_task, &user);
-                                   break;
-            case MSG_SOLUTION: handle_solution(fd, &msg.solution, user);
-                               break;
-            case MSG_HEARTBEAT: handle_heartbeat(fd, &msg.heartbeat, user);
-                                break;
+        switch (envelope->body_case) {
+            case COIN_MSG__ENVELOPE__BODY_REGISTRATION_REQUEST:
+                this_user = handle_registration(fd, envelope->registration_request);
+                break;
+            case COIN_MSG__ENVELOPE__BODY_TASK_REQUEST:
+                handle_request_task(fd, envelope->task_request, this_user);
+                break;
+            case COIN_MSG__ENVELOPE__BODY_VERIFICATION_REQUEST:
+                handle_verification(fd, envelope->verification_request, this_user);
+                break;
+
             default:
-                LOG("ERROR: unknown message type: %d\n", msg.header.msg_type);
+                LOG("ERROR: unknown message type: %d\n", envelope->body_case);
         }
     }
     // Once we break we close and return null
@@ -332,40 +300,24 @@ void *client_thread(void* client_fd) {
     return NULL;
 }
 
-/*
-* Handling SIGINT -> Tells the server to stop listening to connections and terminate ellegantly
-*/
-void sigint_handler(int signo) {
-    printf("SIGINT received. Goodbye...\n\n");
-    running = 0; // Set running to false
-}
-
-// Added cleanup function to centralize resource release
-void cleanup_resources() {
-    // Close the socket if it's open
-    if (socket_fd != -1) {
-        shutdown(socket_fd, SHUT_RDWR);
-        close(socket_fd);
-        socket_fd = -1;
-    }
-    
-    // Close task log and destroy resources
-    task_log_close();
-    task_destroy();
-    pthread_mutex_destroy(&task_mutex);
-    pthread_mutex_destroy(&user_list_mutex);
-    
-    printf("Server shutdown complete.\n");
+/**
+ * Handles signals to shut the main thread down, stop listening for connections,
+ * and clean up.
+ */
+void shutdown_handler(int signo) {
+    running = 0;
 }
 
 int main(int argc, char *argv[]) {
-    int exit_code = 0;  // Added to track exit status
+    int exit_code = 0;
     
-    // Handling signals
-    signal(SIGINT, sigint_handler);
+    // Handle clean shutdown on SIGINT / SIGTERM
+    struct sigaction sa = { 0 };
+    sa.sa_handler = shutdown_handler;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
 
-    if (pthread_mutex_init(&task_mutex, NULL) ||
-        pthread_mutex_init(&user_list_mutex, NULL)) {
+    if (pthread_mutex_init(&lock, NULL) != 0) {
         printf("\n mutex init failed\n");
         return 1;
     }
@@ -407,14 +359,13 @@ int main(int argc, char *argv[]) {
     }
     
     LOG("Starting coin-server version %.1f...\n", VERSION);
-    LOG("%s", "(c) 2023 CS 521 Students\n");
+    LOG("%s", "(c) 2025 CS 521 Students\n");
 
     if (opts.random_seed == 0) {
         opts.random_seed = time(NULL);
     }
     LOG("Random seed: %d\n", opts.random_seed);
     srand(opts.random_seed);
-    
    
     task_init(opts.adj_file, opts.animal_file);
     current_task_wrapper = create_msg(MSG_TASK);
@@ -429,12 +380,10 @@ int main(int argc, char *argv[]) {
         goto cleanup;
     }
 
-    // Allow immediate reuse of the address if in TIME_WAIT
+    // allow immediate reuse of the address if in TIME_WAIT
     int opt = 1;
     if (setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("setsockopt(SO_REUSEADDR)");
-        exit_code = 1;
-        goto cleanup;
     }
 
     // bind to the port specified above
@@ -457,37 +406,27 @@ int main(int argc, char *argv[]) {
 
     LOG("Listening on port %d\n", port);
 
-    // Use running flag instead of infinite loop
     while (running) {
-        /* Outer loop: this keeps accepting connection */
         struct sockaddr_in client_addr = { 0 };
         socklen_t slen = sizeof(client_addr);
 
-	// accept client connection
+        // accept client connection
         int client_fd = accept(
                 socket_fd,
                 (struct sockaddr *) &client_addr,
                 &slen);
 
         if (client_fd == -1) {
-            // Handle EINTR (interrupted by signal)
-            if (errno == EINTR) {
-                // Check running flag we might have been interrupted by SIGINT
-                if (!running) {
-                    LOG("Server shutdown requested during accept()\n");
-                    break;
-                }
-                // Otherwise, just try again
+            if (errno == EINTR && running == false) {
+                // Interrupted by signal, time to shut down
+                break;
+            } else {
+                perror("accept");
                 continue;
             }
-            
-            // For other errors, log but keep trying
-            perror("accept");
-            continue;  // Continue for accept errors
         }
 
-
-	// find out their info (host name, port)
+	// Get client info (host name, port)
         char remote_host[INET_ADDRSTRLEN];
         inet_ntop(
                 client_addr.sin_family,
@@ -502,7 +441,15 @@ int main(int argc, char *argv[]) {
     }
 
 cleanup:
-    // Call cleanup function to release resources
-    cleanup_resources();
+    LOGP("Shutting down...\n");
+
+    close(socket_fd);
+
+    task_log_close();
+    task_destroy();
+
+    pthread_mutex_destroy(&lock);
+
+    LOGP("Shutdown complete.\n");
     return exit_code;
 }
