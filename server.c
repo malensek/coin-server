@@ -28,6 +28,8 @@ struct msg_task *current_task = &current_task_wrapper.task;
 static time_t task_start_time = 0;
 
 static pthread_mutex_t lock;
+static pthread_mutex_t user_list_lock = PTHREAD_MUTEX_INITIALIZER;
+
 
 static volatile sig_atomic_t running = 1;
 
@@ -124,30 +126,49 @@ void print_usage(char *prog_name)
 
 struct user *find_user(char *username)
 {
+    pthread_mutex_lock(&user_list_lock);
     struct user *curr_user = user_list;
     while (curr_user != NULL) {
-      if (strcmp(curr_user->username, username) == 0) {
-        return curr_user;
-      }
-      curr_user = curr_user->next;
+        if (strcmp(curr_user->username, username) == 0) {
+            pthread_mutex_unlock(&user_list_lock);
+            return curr_user;
+        }
+        curr_user = curr_user->next;
     }
+    pthread_mutex_unlock(&user_list_lock);
     return NULL;
 }
 
 struct user *add_user(char *username)
 {
-    struct user *existing = find_user(username);
-    if (existing != NULL) {
-        return NULL;
+    pthread_mutex_lock(&user_list_lock);
+
+    struct user *curr = user_list;
+    while (curr != NULL) {
+        if (strcmp(curr->username, username) == 0) {
+            pthread_mutex_unlock(&user_list_lock);
+            return NULL;
+        }
+        curr = curr->next;
     }
 
     struct user *u = calloc(1, sizeof(struct user));
-    strncpy(u->username, username, MAX_USER_LEN - 1);
+    if (u == NULL) {
+        perror("calloc");
+        pthread_mutex_unlock(&user_list_lock);
+        return NULL;
+    }
+
+    strncpy(u->username, username, MAX_USER_LEN);
+    u->username[MAX_USER_LEN - 1] = '\0'; // safer null-termination
     u->heartbeat_timestamp = 0;
     u->next = user_list;
     user_list = u;
+
+    pthread_mutex_unlock(&user_list_lock);
     return u;
 }
+
 
 bool validate_heartbeat(struct user *u)
 {
@@ -473,6 +494,7 @@ cleanup:
     task_destroy();
 
     pthread_mutex_destroy(&lock);
+    pthread_mutex_destroy(&user_list_lock);
 
     LOGP("Shutdown complete.\n");
     return exit_code;
