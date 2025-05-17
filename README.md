@@ -10,7 +10,8 @@ To get more familiar with:
 1.   The pthread library and parallelization using threads   
 2.   The producer/consumer paradigm    
 3.   Network programming with sockets    
-4.   Taking performance measurements    
+4.   Taking performance measurements
+5.   Introduction to proto buff
 
  
 ## Concept      
@@ -74,6 +75,18 @@ After that, client will send the solution to the server.
 This shows that server got the request from the client.     
 Then, send the task to client immediately.    
 After server got the solution sent by client. It will do verification. And send it back to that client    
+
+## Usage of Proto Buff
+Protocol buffers are Google’s language-neutral, platform-neutral, extensible mechanism for serializing structured data. The data is defined in coin-message.proto and compiled into C-code using protoc --c_out= proto compiler. 
+
+In server.c, you can see how the defined envelope in coin-message.proto is used.
+
+The generated C type CoinMsg__Envelope has a union-like payload field (one‐of), so you can send or receive any of the message kinds through exactly one socket call.
+
+When you call your helper recv_envelope(fd), it reads the length prefix , unpacks the bytes into a CoinMsg__Envelope struct, and checks body_case so you know which type of messges is sent and call corresponding handler to handle the messages.
+
+In short, proto buff provides auto generated functions and structs based on proto file and you can focus implementation instead of network transferring.
+
 
 
 
