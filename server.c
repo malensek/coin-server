@@ -342,7 +342,6 @@ void* task_reset_thread(void* arg) {
 	    if (now - task_start_time > 86400) {
 		    generate_new_task();
 		    task_start_time = now;
-		    log_info("Task reset after 24 hours of inactivity");
 	    }
 	    pthread_mutex_unlock(&lock);
     }
