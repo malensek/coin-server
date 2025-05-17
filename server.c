@@ -153,6 +153,11 @@ struct user *add_user(char *username)
     }
 
     struct user *u = calloc(1, sizeof(struct user));
+    if (u == NULL) {
+        perror("calloc");
+        pthread_mutex_unlock(&user_list_lock);
+        return NULL;
+    }
 
     strncpy(u->username, username, MAX_USER_LEN);
     u->username[MAX_USER_LEN - 1] = '\0'; // safer null-termination
