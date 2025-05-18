@@ -14,71 +14,6 @@
 
 #define MAX_USER_LEN 24
 
-CoinMsg__Envelope *recv_envelope(int fd);
-
-struct __attribute__((__packed__)) msg_header {
-    uint64_t msg_len;
-    uint16_t msg_type;
-};
-
-struct __attribute__((__packed__)) msg_request_task {
-    struct msg_header header;
-    char username[MAX_USER_LEN];
-};
-
-struct __attribute__((__packed__)) msg_task {
-        struct msg_header header;
-        char block[MAX_BLOCK_LEN];
-        uint32_t difficulty_mask;
-        uint64_t sequence_num;
-};
-
-struct __attribute__((__packed__)) msg_solution {
-        struct msg_header header;
-        char username[MAX_USER_LEN];
-        char block[MAX_BLOCK_LEN];
-        uint32_t difficulty_mask;
-        uint64_t nonce;
-        uint64_t sequence_num;
-};
-
-struct __attribute__((__packed__)) msg_verification {
-        struct msg_header header;
-        bool ok;
-        char error_description[128];
-};
-
-struct __attribute__((__packed__)) msg_heartbeat {
-        struct msg_header header;
-        char username[MAX_USER_LEN];
-};
-
-struct __attribute__((__packed__)) msg_heartbeat_reply {
-        struct msg_header header;
-        uint64_t sequence_num;
-};
-
-union __attribute__((__packed__)) msg_wrapper {
-        struct msg_header header;
-        struct msg_request_task request_task;
-        struct msg_task task;
-        struct msg_solution solution;
-        struct msg_verification verification;
-        struct msg_heartbeat heartbeat;
-        struct msg_heartbeat_reply heartbeat_reply;
-};
-
-enum MSG_TYPES {
-        MSG_REQUEST_TASK,
-        MSG_TASK,
-        MSG_SOLUTION,
-        MSG_VERIFICATION,
-        MSG_HEARTBEAT,
-        MSG_HEARTBEAT_REPLY,
-};
-
-size_t msg_size(enum MSG_TYPES type);
-
 /**
  * Function: read_len
  * Purpose:  reads from an input stream, retrying until a specific number of
@@ -94,11 +29,7 @@ ssize_t read_len(int fd, void *buf, size_t length);
 
 ssize_t write_len(const int fd, const void *buf, size_t length);
 
-union msg_wrapper create_msg(enum MSG_TYPES type);
-
-int read_msg(int fd, union msg_wrapper *msg);
-
-int write_msg(int fd, const union msg_wrapper *msg);
+CoinMsg__Envelope *recv_envelope(int fd);
 
 void send_registration_reply(int fd, bool ok);
 void send_task_reply(int fd, char *block, uint32_t difficulty_mask, uint64_t sequence_num);
