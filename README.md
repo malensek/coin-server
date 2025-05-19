@@ -70,14 +70,11 @@ username can be any sequence of 24 characters.
 ![example](https://github.com/weicheng112/coin-server/assets/108167692/dbaf71ab-e129-44ae-99f0-5d02ed344a58)    
          
            
-This picture shows our client requesting the task and starting to work on it.     
-After that, the client will send the solution to the server.    
+This picture shows our client requesting the task and starting to work on it. After that, the client will send the solution to the server.    
 ![example2](https://github.com/weicheng112/coin-server/assets/108167692/dd146ae1-8fe8-4abb-90c4-7c625812da21)     
           
             
-This shows that the server received the request from the client.     
-Then it sends the task to the client immediately.    
-After the server gets the solution sent by the client, it will verify the solution and send the verification result back to the client.    
+This picture shows that the server received the request from the client. Then it sends the task to the client immediately. After the server gets the solution sent by the client, it will verify the solution and send the verification result back to the client.    
 
 ## Usage of Proto Buff
 Protocol buffers are Google’s language-neutral, platform-neutral, extensible mechanism for serializing structured data. The data is defined in coin-message.proto and compiled into C-code using protoc --c_out= proto compiler. 
