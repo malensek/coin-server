@@ -66,40 +66,6 @@ if(DEBUG_ON) {
   return total;
 }
 
-size_t msg_size(enum MSG_TYPES type)
-{
-        switch (type) {
-            case MSG_REQUEST_TASK: return sizeof(struct msg_request_task);
-            case MSG_TASK: return sizeof(struct msg_task);
-            case MSG_SOLUTION: return sizeof(struct msg_solution);
-            case MSG_VERIFICATION: return sizeof(struct msg_verification);
-            case MSG_HEARTBEAT: return sizeof(struct msg_heartbeat);
-            case MSG_HEARTBEAT_REPLY: return sizeof(struct msg_heartbeat_reply);
-            default: assert(false && "Message size not known!");
-        }
-}
-
-int read_msg(int fd, union msg_wrapper *msg)
-{
-  ssize_t header_sz = read_len(fd, msg, sizeof(struct msg_header));
-  if (header_sz <= 0) {
-    return header_sz;
-  }
-
-
-
-  void *payload_ptr = (char *)msg + sizeof(struct msg_header);
-  ssize_t payload_sz = read_len(fd, payload_ptr, msg->header.msg_len - sizeof(struct msg_header));
-  if (payload_sz <= 0) {
-    return payload_sz;
-  }
-  
-  size_t total_size = header_sz + payload_sz;
-  assert((total_size < sizeof(union msg_wrapper) + sizeof(struct msg_header)) && "Cannot read message larger than wrapper union!");
-
-  return total_size;
-}
-
 CoinMsg__Envelope *recv_envelope(int fd)
 {
     uint32_t msg_size;
@@ -125,19 +91,6 @@ CoinMsg__Envelope *recv_envelope(int fd)
     return envelope;
 }
 
-int write_msg(int fd, const union msg_wrapper *msg)
-{
-  return write_len(fd, msg, msg->header.msg_len);
-}
-
-union msg_wrapper create_msg(enum MSG_TYPES type)
-{
-  union msg_wrapper wrapper = { 0 };
-  wrapper.header.msg_type = type;
-  wrapper.header.msg_len = msg_size(type);
-  return wrapper;
-}
-
 ssize_t write_envelope(int fd, const CoinMsg__Envelope *envelope)
 {
   size_t resp_sz = coin_msg__envelope__get_packed_size(envelope);
@@ -150,7 +103,6 @@ ssize_t write_envelope(int fd, const CoinMsg__Envelope *envelope)
   free(buf);
   return result;
 }
-
 
 void send_registration_reply(int fd, bool ok)
 {
