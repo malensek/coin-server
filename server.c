@@ -53,12 +53,12 @@ struct user *user_list = NULL;
 
 uint32_t generate_mask(int zeros)
 {
-    if (zeros == 32) {
-        return 0;
-    }
+	if (zeros <= 0) { return 0xFFFFFFFF; }
+	if (zeros >= 32) { return 0; }
+	return 0xFFFFFFFF >> zeros;
 
-    return 0xFFFFFFFF >> zeros;
 }
+
 
 uint32_t increase_difficulty_mask(uint32_t mask)
 {
@@ -99,7 +99,8 @@ void generate_new_task() {
       } else {
         current_task->difficulty_mask =
             decrease_difficulty_mask(current_task->difficulty_mask);
-      }
+      } 
+
       LOG("Difficulty change: %u -> %u\n", leading_zeros, __builtin_clz(current_task->difficulty_mask));
     }
 
@@ -188,7 +189,12 @@ void pb_handle_heartbeat(int fd, CoinMsg__Heartbeat *hb, struct user *user)
 
     user->heartbeat_timestamp = time(NULL);
 
-    wrapper.heartbeat_reply.sequence_num = current_task->sequence_num;
+    //wrapper.heartbeat_reply.sequence_num = current_task->sequence_num;
+
+pthread_mutex_lock(&lock);
+wrapper.heartbeat_reply.sequence_num = current_task->sequence_num;
+pthread_mutex_unlock(&lock);
+
     write_msg(fd, &wrapper);
 }
 
@@ -208,6 +214,7 @@ void handle_request_task(int fd, CoinMsg__TaskRequest *req, struct user *user)
         current_task_wrapper.task.block,
         current_task_wrapper.task.difficulty_mask,
         current_task_wrapper.task.sequence_num);
+
 }
 
 bool verify_solution(struct CoinMsg__VerificationRequest *solution)
@@ -312,6 +319,7 @@ struct user *handle_registration(int fd, CoinMsg__RegistrationRequest *req)
 
 void *client_thread(void* client_fd) {
     int fd = (int) (long) client_fd;
+
     struct user *this_user;
 
     while (true) {
@@ -321,7 +329,11 @@ void *client_thread(void* client_fd) {
             break;
         }
        if (difftime(time(NULL), task_start_time) > 24 * 60 * 60) {
-            generate_new_task();
+            //generate_new_task();
+pthread_mutex_lock(&lock);
+generate_new_task();
+pthread_mutex_unlock(&lock);
+
             LOG("Task unsolved for 24 hours. Generated new block: %s\n", current_task->block);
         }
 
@@ -482,7 +494,7 @@ int main(int argc, char *argv[]) {
 
         pthread_t thread;
         pthread_create(&thread, NULL, client_thread, (void *) (long) client_fd);
-        pthread_detach(thread);
+
     }
 
 cleanup:
