@@ -331,17 +331,17 @@ void shutdown_handler(int signo) {
 
 void* task_reset_thread(void* arg) {
     while(true) {
-	    sleep(120); 
+	    sleep(60); 
 
 	    pthread_mutex_lock(&lock);
 	    time_t now = time(NULL);
             double diff = difftime(now, task_start_time);
             	    
-	    if (diff > 86400) {
+	    if (diff > 24 * 60 * 60) {
 		    generate_new_task();
 		    char ts[32];
 		    strftime(ts, sizeof ts, "%Y-%m-%d %H:%M:%S", localtime(&now));
-	            LOG("[RESET] task_reset_thread(): 24 Hours Elapsed - Generating New Task at %s\n", ts);
+	            LOG("[RESET]: 24 Hours Elapsed - Generating New Task at %s\n", ts);
 	    }
 	    pthread_mutex_unlock(&lock);
     }
@@ -411,18 +411,22 @@ int main(int argc, char *argv[]) {
     current_task_wrapper = create_msg(MSG_TASK);
     generate_new_task();
 
+    int socket_fd = -1; // if reset_thread fails to create thread, this prevents 
+			// cleanup from closing random garbage fd...
+    bool reset_thread_ok = false;
+
     pthread_t reset_thread;
     if (pthread_create(&reset_thread, NULL, task_reset_thread,NULL) != 0) {
-        perror("Failed to create task reset thread");
-	task_destroy(); 
-	pthread_mutex_destroy(&lock);
-	return 1;
+        perror("pthread_create reset_thread");
+	exit_code = 1;
+	goto cleanup;
     }
+    reset_thread_ok = true;
 
     task_log_open(opts.log_file);
 
     // create a socket
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd == -1) {
         perror("socket");
         exit_code = 1;
@@ -492,7 +496,13 @@ int main(int argc, char *argv[]) {
 cleanup:
     LOGP("Shutting down...\n");
 
-    close(socket_fd);
+    if (reset_thread_ok) {
+	    pthread_join(reset_thread, NULL);
+    }
+
+    if (socket_fd >= 0) {
+	close(socket_fd);
+    }
 
     task_log_close();
     task_destroy();
