@@ -34,17 +34,15 @@ server --> sends verification --> client
 
 
 
-## Build
+## Build and Run
 
-To compile:   
+1. **Compile**
+   ```bash  
+   make    
 
-make    
-
-Usage:   
-
-Server:
-   
-./coin-server port 
+2. **Run Server**   
+   ```bash
+   ./coin-server port 
 
 port can be any four-digit number greater than 1024.
 
@@ -57,15 +55,14 @@ Optional additional arguments:
     * -n    Specify the animal file to be used       
     * -l    Specify the log file to be used      
     
-Client:
-
-./client localhost port username
+3. **Run Client**
+   ```bash
+   ./client localhost port username
 
 port should be the same port used to run the server.
 username can be any sequence of 24 characters. 
 
 ## Running + Example Usage
-
 
 ![example](https://github.com/weicheng112/coin-server/assets/108167692/dbaf71ab-e129-44ae-99f0-5d02ed344a58)    
          
