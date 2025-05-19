@@ -50,21 +50,25 @@ struct client_info {
 static pthread_mutex_t lock;
 static volatile sig_atomic_t running = 1;
 
-uint32_t generate_mask(int zeros)
+uint32_t generate_mask(unsigned int zeros)
 {
-	if (zeros <= 0) { return 0xFFFFFFFF; }
-	if (zeros >= 32) { return 0; }
-	return 0xFFFFFFFF >> zeros;
+    if (zeros <= 0) {
+        return 0xFFFFFFFF;
+    }
 
+    if (zeros >= 32) {
+        return 0;
+    }
+
+    return 0xFFFFFFFF >> zeros;
 }
-
 
 uint32_t increase_difficulty_mask(uint32_t mask)
 {
     if (mask == 0x01) {
         return 0;
     }
-    
+
     return (mask >> 1);
 }
 
@@ -87,19 +91,20 @@ void generate_new_task() {
     time_t now = time(NULL);
     uint8_t leading_zeros = __builtin_clz(current_task.difficulty_mask);
     if (current_task.start_time == 0) {
-      leading_zeros = 1 + rand() % 25;
-      current_task.difficulty_mask = generate_mask(leading_zeros);
+        leading_zeros = 1 + rand() % 25;
+        current_task.difficulty_mask = generate_mask(leading_zeros);
     } else {
-      double diff = difftime(now, current_task.start_time);
-      LOG("Time to find solution = %f\n", diff);
-      if (diff < 600.0) { // 10 min?
-        current_task.difficulty_mask =
-            increase_difficulty_mask(current_task.difficulty_mask);
-      } else {
-        current_task.difficulty_mask =
-            decrease_difficulty_mask(current_task.difficulty_mask);
-      }
-      LOG("Difficulty change: %u -> %u\n", leading_zeros, __builtin_clz(current_task.difficulty_mask));
+        double diff = difftime(now, current_task.start_time);
+        LOG("Time to find solution = %f\n", diff);
+        if (diff < 600.0) { // 10 min?
+            current_task.difficulty_mask =
+                increase_difficulty_mask(current_task.difficulty_mask);
+        } else {
+            current_task.difficulty_mask =
+                decrease_difficulty_mask(current_task.difficulty_mask);
+        }
+        LOG("Difficulty change: %u -> %u\n",
+            leading_zeros, __builtin_clz(current_task.difficulty_mask));
     }
 
     task_generate(current_task.block);
@@ -196,8 +201,12 @@ bool verify_solution(struct CoinMsg__VerificationRequest *solution)
 void handle_verification(
     int fd, CoinMsg__VerificationRequest *solution, struct client_info *user)
 {
-    LOG("[SOLUTION SUBMITTED] User: %s, block: %s, difficulty: %u, NONCE: %lu\n", user->username, solution->block, solution->difficulty_mask, solution->nonce);
-    
+    LOG("[SOLUTION SUBMITTED] User: %s, block: %s, difficulty: %u, nonce: %lu\n",
+        user->username,
+        solution->block,
+        solution->difficulty_mask,
+        solution->nonce);
+
     /* We could directly verify the solution, but let's make sure it's the same
      * sequence number, block, and difficulty first: */
     if (current_task.sequence_num != solution->sequence_num) {
@@ -211,7 +220,7 @@ void handle_verification(
             fd, false, "Block does not match current block on server");
         return;
     }
-    
+
     if (current_task.difficulty_mask !=  solution->difficulty_mask) {
         send_verification_reply(
             fd, false,
@@ -233,7 +242,7 @@ void handle_verification(
         generate_new_task();
         LOG("Generated new block: %s\n", current_task.block);
     }
-    
+
     pthread_mutex_unlock(&lock); // unlock after verification
 
     send_verification_reply(fd, solution_ok, "Verified SHA-1 hash");
@@ -302,26 +311,26 @@ void shutdown_handler(int signo) {
 
 void* task_reset_thread(void* arg) {
     while(true) {
-	    sleep(60); 
+        sleep(60); 
 
-	    pthread_mutex_lock(&lock);
-	    time_t now = time(NULL);
-            double diff = difftime(now, task_start_time);
-            	    
-	    if (diff > 24 * 60 * 60) {
-		    generate_new_task();
-		    char ts[32];
-		    strftime(ts, sizeof ts, "%Y-%m-%d %H:%M:%S", localtime(&now));
-	            LOG("[RESET]: 24 Hours Elapsed - Generating New Task at %s\n", ts);
-	    }
-	    pthread_mutex_unlock(&lock);
+        pthread_mutex_lock(&lock);
+        time_t now = time(NULL);
+        double diff = difftime(now, current_task.start_time);
+
+        if (diff > 24 * 60 * 60) {
+            generate_new_task();
+            char ts[32];
+            strftime(ts, sizeof ts, "%Y-%m-%d %H:%M:%S", localtime(&now));
+            LOG("[RESET]: 24 Hours Elapsed - Generating New Task at %s\n", ts);
+        }
+        pthread_mutex_unlock(&lock);
     }
     return NULL;
 }
 
 int main(int argc, char *argv[]) {
     int exit_code = 0;
-    
+
     // Handle clean shutdown on SIGINT / SIGTERM
     struct sigaction sa = { 0 };
     sa.sa_handler = shutdown_handler;
@@ -346,7 +355,7 @@ int main(int argc, char *argv[]) {
     opterr = 0;
     while ((c = getopt(argc, argv, "s:a:n:l:")) != -1) {
         switch (c) {
-        char *end;
+            char *end;
             case 's':
                 opts.random_seed = (int) strtol(optarg, &end, 10);
                 LOG("seed is %d\n", opts.random_seed);
@@ -368,7 +377,7 @@ int main(int argc, char *argv[]) {
                 break;
         }
     }
-    
+
     LOG("Starting coin-server version %.1f...\n", VERSION);
     LOG("%s", "(c) 2025 CS 521 Students\n");
 
@@ -377,27 +386,15 @@ int main(int argc, char *argv[]) {
     }
     LOG("Random seed: %d\n", opts.random_seed);
     srand(opts.random_seed);
-   
+
     task_init(opts.adj_file, opts.animal_file);
 
     generate_new_task();
 
-    int socket_fd = -1; // if reset_thread fails to create thread, this prevents 
-			// cleanup from closing random garbage fd...
-    bool reset_thread_ok = false;
-
-    pthread_t reset_thread;
-    if (pthread_create(&reset_thread, NULL, task_reset_thread,NULL) != 0) {
-        perror("pthread_create reset_thread");
-	exit_code = 1;
-	goto cleanup;
-    }
-    reset_thread_ok = true;
-
     task_log_open(opts.log_file);
 
     // create a socket
-    socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd == -1) {
         perror("socket");
         exit_code = 1;
@@ -428,6 +425,16 @@ int main(int argc, char *argv[]) {
         goto cleanup;
     }
 
+    // create reset thread that will generate a new task if no solution has been
+    // found in 24 hours
+    pthread_t reset_thread;
+    if (pthread_create(&reset_thread, NULL, task_reset_thread,NULL) != 0) {
+        perror("pthread_create reset_thread");
+        exit_code = 1;
+        goto cleanup;
+    }
+    pthread_detach(reset_thread);
+
     LOG("Listening on port %d\n", port);
 
     while (running) {
@@ -436,9 +443,9 @@ int main(int argc, char *argv[]) {
 
         // accept client connection
         int client_fd = accept(
-                socket_fd,
-                (struct sockaddr *) &client_addr,
-                &slen);
+            socket_fd,
+            (struct sockaddr *) &client_addr,
+            &slen);
 
         if (client_fd == -1) {
             if (errno == EINTR && running == false) {
@@ -450,29 +457,25 @@ int main(int argc, char *argv[]) {
             }
         }
 
-	// Get client info (host name, port)
+        // Get client info (host name, port)
         char remote_host[INET_ADDRSTRLEN];
         inet_ntop(
-                client_addr.sin_family,
-                (void *) &((&client_addr)->sin_addr),
-                remote_host,
-                sizeof(remote_host));
+            client_addr.sin_family,
+            (void *) &((&client_addr)->sin_addr),
+            remote_host,
+            sizeof(remote_host));
         LOG("Accepted connection from %s:%d\n", remote_host, client_addr.sin_port);
 
         pthread_t thread;
         pthread_create(&thread, NULL, client_thread, (void *) (long) client_fd);
-
+        pthread_detach(thread);
     }
 
 cleanup:
     LOGP("Shutting down...\n");
 
-    if (reset_thread_ok) {
-	    pthread_join(reset_thread, NULL);
-    }
-
     if (socket_fd >= 0) {
-	close(socket_fd);
+        close(socket_fd);
     }
 
     task_log_close();
@@ -481,7 +484,6 @@ cleanup:
     user_manager_destroy();
 
     pthread_mutex_destroy(&lock);
-    pthread_mutex_destroy(&user_list_lock);
 
     LOGP("Shutdown complete.\n");
     return exit_code;
