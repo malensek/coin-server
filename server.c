@@ -52,12 +52,12 @@ static volatile sig_atomic_t running = 1;
 
 uint32_t generate_mask(int zeros)
 {
-    if (zeros == 32) {
-        return 0;
-    }
+	if (zeros <= 0) { return 0xFFFFFFFF; }
+	if (zeros >= 32) { return 0; }
+	return 0xFFFFFFFF >> zeros;
 
-    return 0xFFFFFFFF >> zeros;
 }
+
 
 uint32_t increase_difficulty_mask(uint32_t mask)
 {
@@ -266,7 +266,6 @@ void *client_thread(void* client_fd) {
         if(envelope == NULL){
             break;
         }
-/* no 24-hour check here; task_reset_thread handles it */
 
         switch (envelope->body_case) {
             case COIN_MSG__ENVELOPE__BODY_REGISTRATION_REQUEST:
@@ -462,7 +461,7 @@ int main(int argc, char *argv[]) {
 
         pthread_t thread;
         pthread_create(&thread, NULL, client_thread, (void *) (long) client_fd);
-        pthread_detach(thread);
+
     }
 
 cleanup:
@@ -482,6 +481,7 @@ cleanup:
     user_manager_destroy();
 
     pthread_mutex_destroy(&lock);
+    pthread_mutex_destroy(&user_list_lock);
 
     LOGP("Shutdown complete.\n");
     return exit_code;

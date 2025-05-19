@@ -1,80 +1,77 @@
 # coin-server
 
-This is "coin-server" for all the classmates in CS521 can mine for 521COIN:)))     
+A server  for all the classmates in CS521 to  mine for 521COIN!     
 
 
-## Purpose for building this
+## Learning Outcomes
 
-To get more familiar with:    
+To become more familiar with:    
     
 1.   The pthread library and parallelization using threads   
 2.   The producer/consumer paradigm    
 3.   Network programming with sockets    
-4.   Taking performance measurements
+4.   Performance measurement
 5.   Introduction to proto buff
 
  
 ## Concept      
     
-When the client already connect to the server, the client will request for the task first.   
-After that, server will create the task and send it back to client.       
-Then, the client can work on "mining" and get the solution then send it back to server.     
-Server will verify the solution is correct or not and send the bool back to client.      
-If the verification is True, client can mine again!!!        
+When the client connects  to the server, it will first request a task. Then the server will create the task and send it back to the client. Once the task is received, the client can work on "mining", find a solution, and send it back to the server. The server will verify whether the solution is correct and send this boolean value back to the client. If the verification is True, the client can mine again!        
 
-BIG PIC:    
-![example3](https://github.com/weicheng112/coin-server/assets/108167692/2a3b6bb0-aea9-416e-a22a-335503463347)
+![Image](https://github.com/user-attachments/assets/81d0d372-a709-4c5e-bfda-1dd7e356a7f8)  
 
 
 
 ## Steps
   
 
-client --> request for task --> server    
-server --> give the task --> client        
-
-client working on it!!!        
- 
-  
-client --> send solutioin --> server    
-server do verify      
-server --> send verification --> client     
+client --> requests task --> server    
+server --> gives task --> client        
+client works on it       
+client --> sends solution --> server    
+server verifies     
+server --> sends verification --> client     
 
 
 
-## Build
+## Build and Run
 
-To compile:   
+1. **Compile**
+   ```bash  
+   make    
 
-make    
+2. **Run Server**   
+   ```bash
+   ./coin-server port 
 
-Usage:   
-   
-./coin-server port [-s seed] [-a adjective_file] [-n animal_file] [-l log_file]     
-Options:     
+port can be any four-digit number greater than 1024.
+
+Optional additional arguments:
+
+[-s seed] [-a adjective_file] [-n animal_file] [-l log_file]          
+    
     * -s    Specify the seed number       
     * -a    Specify the adjective file to be used       
     * -n    Specify the animal file to be used       
     * -l    Specify the log file to be used      
     
-client:
+3. **Run Client**
+   ```bash
+   ./client localhost port username
 
-./client localhost port
+port should be the same port used to run the server.
+username can be any sequence of 24 characters. 
 
 ## Running + Example Usage
-
 
 ![example](https://github.com/weicheng112/coin-server/assets/108167692/dbaf71ab-e129-44ae-99f0-5d02ed344a58)    
          
            
-This picture shows that our client request for the task and start working on it.     
-After that, client will send the solution to the server.    
+This picture shows our client requesting the task and starting to work on it. After that, the client will send the solution to the server.    
 ![example2](https://github.com/weicheng112/coin-server/assets/108167692/dd146ae1-8fe8-4abb-90c4-7c625812da21)     
           
             
-This shows that server got the request from the client.     
-Then, send the task to client immediately.    
-After server got the solution sent by client. It will do verification. And send it back to that client    
+This picture shows that the server received the request from the client. Then it sends the task to the client immediately. After the server gets the solution sent by the client, it will verify the solution and send the verification result back to the client.    
 
 ## Usage of Proto Buff
 Protocol buffers are Google’s language-neutral, platform-neutral, extensible mechanism for serializing structured data. The data is defined in coin-message.proto and compiled into C-code using protoc --c_out= proto compiler. 
