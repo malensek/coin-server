@@ -266,10 +266,7 @@ void *client_thread(void* client_fd) {
         if(envelope == NULL){
             break;
         }
-       if (difftime(time(NULL), current_task.start_time) > 24 * 60 * 60) {
-            generate_new_task();
-            LOG("Task unsolved for 24 hours. Generated new block: %s\n", current_task.block);
-        }
+/* no 24-hour check here; task_reset_thread handles it */
 
         switch (envelope->body_case) {
             case COIN_MSG__ENVELOPE__BODY_REGISTRATION_REQUEST:
@@ -301,6 +298,26 @@ void *client_thread(void* client_fd) {
  */
 void shutdown_handler(int signo) {
     running = 0;
+}
+
+
+void* task_reset_thread(void* arg) {
+    while(true) {
+	    sleep(60); 
+
+	    pthread_mutex_lock(&lock);
+	    time_t now = time(NULL);
+            double diff = difftime(now, task_start_time);
+            	    
+	    if (diff > 24 * 60 * 60) {
+		    generate_new_task();
+		    char ts[32];
+		    strftime(ts, sizeof ts, "%Y-%m-%d %H:%M:%S", localtime(&now));
+	            LOG("[RESET]: 24 Hours Elapsed - Generating New Task at %s\n", ts);
+	    }
+	    pthread_mutex_unlock(&lock);
+    }
+    return NULL;
 }
 
 int main(int argc, char *argv[]) {
@@ -365,10 +382,23 @@ int main(int argc, char *argv[]) {
     task_init(opts.adj_file, opts.animal_file);
 
     generate_new_task();
+
+    int socket_fd = -1; // if reset_thread fails to create thread, this prevents 
+			// cleanup from closing random garbage fd...
+    bool reset_thread_ok = false;
+
+    pthread_t reset_thread;
+    if (pthread_create(&reset_thread, NULL, task_reset_thread,NULL) != 0) {
+        perror("pthread_create reset_thread");
+	exit_code = 1;
+	goto cleanup;
+    }
+    reset_thread_ok = true;
+
     task_log_open(opts.log_file);
 
     // create a socket
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    socket_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (socket_fd == -1) {
         perror("socket");
         exit_code = 1;
@@ -438,7 +468,13 @@ int main(int argc, char *argv[]) {
 cleanup:
     LOGP("Shutting down...\n");
 
-    close(socket_fd);
+    if (reset_thread_ok) {
+	    pthread_join(reset_thread, NULL);
+    }
+
+    if (socket_fd >= 0) {
+	close(socket_fd);
+    }
 
     task_log_close();
     task_destroy();
@@ -450,3 +486,4 @@ cleanup:
     LOGP("Shutdown complete.\n");
     return exit_code;
 }
+
