@@ -16,11 +16,7 @@ To become more familiar with:
  
 ## Concept      
     
-When the client connects  to the server, it will first request a task. 
-Then the server will create the task and send it back to the client.     
-Once the task is received, the client can work on "mining", find a solution, and send it back to the server.     
-The server will verify whether the solution is correct and send this boolean value back to the client.      
-If the verification is True, the client can mine again!        
+When the client connects  to the server, it will first request a task. Then the server will create the task and send it back to the client. Once the task is received, the client can work on "mining", find asolution, and send it back to the server. The server will verify whether the solution is correct and send this boolean value back to the client. If the verification is True, the client can mine again!        
 
 ![Image](https://github.com/user-attachments/assets/81d0d372-a709-4c5e-bfda-1dd7e356a7f8)  
 
