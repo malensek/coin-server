@@ -34,5 +34,5 @@ CoinMsg__Envelope *recv_envelope(int fd);
 void send_registration_reply(int fd, bool ok);
 void send_task_reply(int fd, char *block, uint32_t difficulty_mask, uint64_t sequence_num);
 void send_verification_reply(int fd, bool ok, char *diagnostic);
-
+ssize_t write_envelope(int fd, const CoinMsg__Envelope *envelope);
 #endif

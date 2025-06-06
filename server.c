@@ -140,15 +140,22 @@ void handle_heartbeat(int fd, CoinMsg__Heartbeat *hb, struct client_info *user)
     LOG("[HEARTBEAT] User: %s\n", user->username);
 
     if (validate_heartbeat(user) == false) {
-        //TODO: send empty task to indicate failure
+        LOG("%s", "[HEARTBEAT] User verification failed, sending empty response\n");
+
+        send_task_reply(fd, "", 0, 0);
         return;
     }
 
     user->heartbeat_timestamp = time(NULL);
 
-    // TODO: send a heartbeat reply with the next sequence number.
-    //       Old code follows:
-    // wrapper.heartbeat_reply.sequence_num = current_task->sequence_num;
+    CoinMsg__HeartbeatReply reply = COIN_MSG__HEARTBEAT_REPLY__INIT; 
+    reply.sequence_num = current_task.sequence_num; 
+    CoinMsg__Envelope envelope = COIN_MSG__ENVELOPE__INIT;
+    envelope.heartbeat_reply = &reply;
+    envelope.body_case = COIN_MSG__ENVELOPE__BODY_HEARTBEAT_REPLY;
+
+    LOG("[HEARTBEAT] Sent heartbeat reply to %s: seq=%lu\n", user->username, current_task.sequence_num);
+    write_envelope(fd, &envelope);
 }
 
 void handle_request_task(int fd, CoinMsg__TaskRequest *req, struct client_info *user)
@@ -175,8 +182,8 @@ bool verify_solution(struct CoinMsg__VerificationRequest *solution)
     const char *check_format = "%s%lu";
     ssize_t buf_sz = snprintf(NULL, 0, check_format, current_task.block, solution->nonce);
     char *buf = malloc(buf_sz + 1);
-    if(buf == NULL){
-        perror("malloc");
+    if (buf == NULL){
+        perror("malloc failed");
         return false;
     }
 
@@ -256,7 +263,18 @@ struct client_info *handle_registration(int fd, CoinMsg__RegistrationRequest *re
     bool success = user_register(req->username);
     if (success == true) {
         new_user = calloc(1, sizeof(struct client_info));
+        if (new_user == NULL) {
+            LOG("%s", "Failed to allocate memory for user\n");
+            send_registration_reply(fd, false);
+            return NULL;
+        }
         new_user->username = strdup(req->username);
+        if (new_user->username == NULL) {
+            LOG("%s", "strdup failed for username \n");
+            free(new_user);
+            send_registration_reply(fd, false);
+            return NULL;
+        }
     } else {
         LOG("User already exists: %s\n", req->username);
     }
@@ -279,14 +297,21 @@ void *client_thread(void* client_fd) {
         switch (envelope->body_case) {
             case COIN_MSG__ENVELOPE__BODY_REGISTRATION_REQUEST:
                 this_user = handle_registration(fd, envelope->registration_request);
+                if (this_user == NULL) {
+                    LOG("%s", "ERROR: Registration failed, closing client... \n");
+                    break;
+                }
                 break;
             case COIN_MSG__ENVELOPE__BODY_TASK_REQUEST:
+                if (!this_user) break;
                 handle_request_task(fd, envelope->task_request, this_user);
                 break;
             case COIN_MSG__ENVELOPE__BODY_VERIFICATION_REQUEST:
+                if (!this_user) break;
                 handle_verification(fd, envelope->verification_request, this_user);
                 break;
             case COIN_MSG__ENVELOPE__BODY_HEARTBEAT:
+                if (!this_user) break;
                 handle_heartbeat(fd, envelope->heartbeat, this_user);
                 break;
 
